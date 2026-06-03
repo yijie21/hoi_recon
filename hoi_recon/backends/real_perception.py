@@ -15,7 +15,7 @@ import os
 
 import numpy as np
 
-from . import BackendNotAvailable, require_ckpt
+from . import BackendNotAvailable, require_ckpt, require_repo
 
 _CACHE = {}
 
@@ -56,12 +56,71 @@ def _load_moge(cfg):
 
 
 def run_stage0_geometry(cfg, frame_paths, out_dir):
-    """MoGe-2 over frames -> metric depth maps + camera intrinsics.
+    """Stage-0 geometry: per-frame metric depth + camera intrinsics (+ extrinsics).
 
-    Returns dict(intrinsics[3,3] px, extrinsics[T,4,4], depth_dir, depth_paths,
-    image_size(H,W)). Camera extrinsics fall back to identity (static-camera
-    assumption) unless a SLAM backend (VIPE) is wired — logged by the caller.
+    Dispatches on cfg.backend.depth:
+      * 'moge'                 -> MoGe-2 depth + intrinsics; identity extrinsics
+      * 'da3'/'depth_anything_3' -> Depth-Anything-3: metric depth + intrinsics
+                                  + real camera poses (extrinsics), one joint pass
+
+    Returns dict(intrinsics[3,3] px, extrinsics[T,4,4] world->cam, depth_dir,
+    depth_paths, image_size(H,W), camera_source).
     """
+    if cfg.backend.depth in ("da3", "depth_anything_3"):
+        return _da3_geometry(cfg, frame_paths, out_dir)
+    return _moge_geometry(cfg, frame_paths, out_dir)
+
+
+def _save_depth(depth_dir, i, depth):
+    os.makedirs(depth_dir, exist_ok=True)
+    dp = os.path.join(depth_dir, f"{i:05d}.npy")
+    np.save(dp, depth.astype(np.float16))
+    return dp
+
+
+def _da3_geometry(cfg, frame_paths, out_dir):
+    """Depth-Anything-3 — metric depth + intrinsics + camera extrinsics in one
+    multi-view pass (ViPE's camera-pose capability is merged into DA3). Depth is
+    resized to the original frame resolution and intrinsics scaled to match, so it
+    stays aligned with the (original-resolution) SAM2 masks used downstream."""
+    import torch
+    import cv2
+    require_repo(cfg.paths.third_party, "Depth-Anything-3",
+                 "git clone https://github.com/ByteDance-Seed/Depth-Anything-3")
+    try:
+        from depth_anything_3.api import DepthAnything3
+    except Exception as e:
+        raise BackendNotAvailable(
+            f"Depth-Anything-3 not importable ({e}). Install it: "
+            "cd third_party/Depth-Anything-3 && pip install -e .")
+    name = cfg.backend.get("da3_model", "da3metric-large") \
+        if hasattr(cfg.backend, "get") else "da3metric-large"
+    model = DepthAnything3(model_name=name).to(_device()).eval()
+    with torch.no_grad():
+        pred = model.inference(list(frame_paths), process_res=504)
+    depth = np.asarray(pred.depth, np.float32)          # (N,hp,wp) metric
+    intr = np.asarray(pred.intrinsics, np.float64)      # (N,3,3) at processed res
+    ext34 = np.asarray(pred.extrinsics, np.float64)     # (N,3,4) world->cam
+    N, hp, wp = depth.shape
+    H, W = cv2.imread(frame_paths[0]).shape[:2]         # original frame size
+
+    depth_dir = os.path.join(out_dir, "depth")
+    depth_paths = []
+    for i in range(N):
+        d = cv2.resize(depth[i], (W, H), interpolation=cv2.INTER_NEAREST)
+        depth_paths.append(_save_depth(depth_dir, i, d))
+    K = np.median(intr, axis=0).copy()
+    K[0] *= W / wp                                      # rescale to original res
+    K[1] *= H / hp
+    extr = np.tile(np.eye(4), (N, 1, 1))
+    extr[:, :3, :4] = ext34
+    return {"intrinsics": K, "extrinsics": extr, "depth_dir": depth_dir,
+            "depth_paths": depth_paths, "image_size": (H, W), "camera_source": "da3"}
+
+
+def _moge_geometry(cfg, frame_paths, out_dir):
+    """MoGe-2 over frames -> metric depth + intrinsics; identity camera extrinsics
+    (static-camera assumption; use --depth da3 for real camera motion)."""
     import torch
     import cv2
     model = _load_moge(cfg)
@@ -93,7 +152,8 @@ def run_stage0_geometry(cfg, frame_paths, out_dir):
     T = len(frame_paths)
     extrinsics = np.tile(np.eye(4), (T, 1, 1))       # identity (static-cam fallback)
     return {"intrinsics": intrinsics, "extrinsics": extrinsics,
-            "depth_dir": depth_dir, "depth_paths": depth_paths, "image_size": HW}
+            "depth_dir": depth_dir, "depth_paths": depth_paths,
+            "image_size": HW, "camera_source": "identity"}
 
 
 # ==========================================================================

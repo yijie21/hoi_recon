@@ -33,6 +33,7 @@ REPOS=(
   "FoundationPose|https://github.com/NVlabs/FoundationPose"
   "MoGe|https://github.com/microsoft/MoGe"
   "Depth-Anything-V2|https://github.com/DepthAnything/Depth-Anything-V2"
+  "Depth-Anything-3|https://github.com/ByteDance-Seed/Depth-Anything-3"
   "vipe|https://github.com/nv-tlabs/vipe"
 )
 

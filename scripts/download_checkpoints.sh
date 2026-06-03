@@ -27,6 +27,12 @@ run hf download Ruicheng/moge-2-vitl-normal --local-dir "$CK/moge/moge-2-vitl-no
 echo "## SAM 2.1 large (segmentation, stage1)"
 run hf download facebook/sam2.1-hiera-large --local-dir "$CK/sam2/sam2.1-hiera-large"
 
+# --- Depth-Anything-3 (optional alt depth+camera) ------------------------
+echo "## Depth-Anything-3 metric (optional, --depth da3)"
+echo "   NOTE: DA3 also auto-downloads to the HF cache on first run; this just"
+echo "   pre-fetches the metric model. Other variants: DA3-LARGE, DA3NESTED-GIANT-LARGE"
+run hf download depth-anything/DA3METRIC-LARGE --local-dir "$CK/da3/DA3METRIC-LARGE"
+
 # --- WiLoR YOLO hand detector --------------------------------------------
 echo "## WiLoR detector + recon weights (hand detection, stage1/2)"
 run hf download rolpotamias/WiLoR --local-dir "$CK/wilor"

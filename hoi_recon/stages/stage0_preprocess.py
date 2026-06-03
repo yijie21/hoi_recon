@@ -68,9 +68,11 @@ def run(ctx) -> Bundle:
         depth_dir = geo["depth_dir"]
         H, W = geo["image_size"]
         has_depth = True
-        if cfg.backend.camera == "vipe":
-            log("camera: VIPE not wired — using MoGe intrinsics + identity "
-                "extrinsics (static-camera assumption)", "warn")
+        if geo.get("camera_source") == "da3":
+            log("camera: using Depth-Anything-3 estimated poses (real extrinsics)")
+        else:
+            log("camera: identity extrinsics (static-camera assumption); "
+                "use --depth da3 for real camera motion", "warn")
 
     meta = {
         "T": int(T), "H": int(H), "W": int(W), "fps": float(fps),

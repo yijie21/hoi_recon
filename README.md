@@ -120,7 +120,8 @@ hoi-recon-view --run runs/clip01           # view the 4D result
 | stage | backend | model | status |
 |------|---------|-------|--------|
 | 0 depth + intrinsics | `--depth moge` | **MoGe-2** (metric depth, camera K) | ✅ working |
-| 0 camera extrinsics | `--camera vipe` | VIPE | ⚠️ not wired → falls back to identity (static-camera) |
+| 0 depth + **camera poses** | `--depth da3` | **Depth-Anything-3** (metric depth + intrinsics + **real extrinsics**; ViPE's camera engine is merged into DA3) | ⚙️ wired (clone+install DA3 to use) |
+| 0 camera extrinsics | (default) | identity fallback, or DA3 above | ✅ identity; real poses via `--depth da3` |
 | 1 hand detection | — | **WiLoR YOLO** detector (no detectron2) | ✅ working |
 | 1 object mask | — | **SAM 2.1** (point-prompted, propagated) | ✅ working |
 | 2 hand → MANO | `--hand hamer` | **HaMeR** (boxes from stage 1) | ⚙️ wired — needs **MANO** (license) |
@@ -141,8 +142,12 @@ stage**, because HaMeR (and WiLoR) need the **MANO** model, which is license-gat
   `numpy<1.24`; this env uses `numpy>=2` (for MoGe/SAM2). If the hand stage errors
   inside chumpy, use a patched chumpy or a dedicated env for stage 2 — every other
   stage works with `numpy>=2`.
-- **Camera extrinsics** fall back to identity (static camera). Wire VIPE in
-  `backends/real_perception.run_stage0_geometry` for moving-camera clips.
+- **Camera extrinsics.** With `--depth moge` they are identity (static-camera
+  assumption). For moving-camera clips use **`--depth da3`** (Depth-Anything-3),
+  which predicts metric depth *and* real camera poses in one multi-view pass — ViPE's
+  camera-pose engine was merged into DA3. Clone+install it first:
+  `bash scripts/setup_third_party.sh && pip install -e third_party/Depth-Anything-3`
+  (weights auto-download from HF, or pre-fetch `depth-anything/DA3METRIC-LARGE`).
 - **Object branch.** `--object sam3d` currently uses the model-free *depth-lift*
   reconstruction (SAM2 mask + MoGe depth). It recovers shape + translation; rotation
   is identity (upgrade via ICP/CoTracker or the real SAM-3D-Objects model).

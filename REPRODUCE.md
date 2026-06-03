@@ -61,6 +61,33 @@ SAM2 (`-e`), ultralytics + dill + trimesh, and HaMeR runtime deps
 (pytorch-lightning, smplx, yacs, einops, timm, webdataset). **No detectron2 needed** —
 we use WiLoR's YOLO hand boxes instead of HaMeR's detectron2 detector.
 
+Optional: **Depth-Anything-3** (`--depth da3`, metric depth + real camera poses) —
+installed by `setup_real.sh` with `--no-deps` (its `numpy<2` pin is over-conservative;
+it runs fine on numpy 2). Use it instead of MoGe for moving-camera clips; weights
+auto-download from HF (or pre-fetch `depth-anything/DA3METRIC-LARGE` into `checkpoints/da3/`).
+
+### Verify the single env runs everything
+
+```bash
+python scripts/check_env.py
+```
+
+This is an **import matrix + fake-load pipeline run** (stub models, random weights, no
+checkpoints) that confirms one env holds all backends. Expected result:
+
+```
+passed: 34   hard-fail: 0   expected-fail: 1
+✅ One conda env runs ALL related code (ours + MoGe + DA3 + SAM2 + ultralytics +
+   HaMeR + WiLoR) and the full real pipeline (fake weights).
+⚠️  Only `chumpy` cannot coexist with numpy>=2 — needed solely to load the official
+   MANO .pkl for --hand hamer/wilor. Use --hand depthlift (no MANO), or a patched
+   chumpy / numpy<1.24 side-env for that one step.
+```
+
+So **a single `hoi_recon` env runs every code path**; the only thing it cannot do is
+deserialize the license-gated MANO `.pkl` (chumpy vs numpy≥2). `--hand depthlift` is
+unaffected and runs the full pipeline end-to-end.
+
 ## 4. Checkpoints
 
 ```bash
@@ -125,7 +152,8 @@ hoi-recon-view --run runs/clip01            # browser viewer of the 4D HOI
 | stage | backend | status |
 |------|---------|--------|
 | 0 depth + intrinsics | MoGe-2 (`--depth moge`) | ✅ verified on GPU |
-| 0 camera extrinsics | identity fallback (ViPE not wired) | ✅ (static-camera assumption) |
+| 0 depth + real camera poses | Depth-Anything-3 (`--depth da3`) | ⚙️ wired; clone+install DA3 (gives metric depth + real extrinsics; replaces ViPE) |
+| 0 camera extrinsics | identity (with `--depth moge`) / DA3 (with `--depth da3`) | ✅ identity verified; DA3 poses pending first run |
 | 1 hand boxes | WiLoR YOLO | ✅ verified |
 | 1 object mask | SAM 2.1 (point-prompt + propagate) | ✅ verified |
 | 2 hand (MANO-free) | `--hand depthlift` (MoGe depth lift) | ✅ verified end-to-end |
