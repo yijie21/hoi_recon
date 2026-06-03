@@ -18,4 +18,5 @@ dependencies:
       - imageio>=2.31
       - imageio-ffmpeg>=0.4
       - trimesh>=4.0
+      - viser>=1.0          # interactive 4D HOI web viewer (hoi-recon-view)
       - -e .

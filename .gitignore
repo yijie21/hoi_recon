@@ -17,3 +17,5 @@ data/
 !hoi_recon/**/*.npz
 .DS_Store
 .ipynb_checkpoints/
+wget-log
+*.log

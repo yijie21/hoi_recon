@@ -65,6 +65,7 @@ def main(argv=None):
         log(f"{type(e).__name__}: {e}", "err")
         return 1
     log("done.", "ok")
+    log(f"view the 4D interaction:  hoi-recon-view --run {args.out}", "info")
     return 0
 
 

@@ -51,6 +51,23 @@ def test_stage_caching_and_resume():
         assert ctx.has("stage8_eval")
 
 
+def test_viser_viewer_builds_and_renders():
+    pytest = __import__("pytest")
+    if __import__("importlib").util.find_spec("viser") is None:
+        pytest.skip("viser not installed")
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx = _run(tmp)
+        from hoi_recon.viz import viser_app as V
+        srv, render, gui_contacts = V.launch(ctx.run_dir, port=8147, block=False)
+        try:
+            for t in [0, 5, 10]:
+                render(t)
+            gui_contacts.value = True
+            render(7)
+        finally:
+            srv.stop()
+
+
 def test_geometry_umeyama_recovers_similarity():
     from hoi_recon.geometry import umeyama, rotvec_to_R, transform_points, se3
     rng = np.random.default_rng(0)

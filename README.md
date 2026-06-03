@@ -69,6 +69,33 @@ How to read it (this is the whole point of the rig):
   `stage3_object.py` to watch the contact-recovery bottleneck get worse — that is
   the model-free object-shape error in the DESIGN.md budget.
 
+## View the 4D reconstruction (viser)
+
+Visualize the final reconstructed hand-object interaction in your browser —
+animated over time, with contact highlighting:
+
+```bash
+pip install viser                         # if not already in the env
+python -m hoi_recon.viz.viser_app --run runs/demo     # or:  hoi-recon-view --run runs/demo
+# then open the printed http://localhost:8080 URL
+```
+
+In the viewer:
+- the **object** is a mesh transformed by its per-frame 6D pose;
+- the **hand** is a point cloud (MANO mesh if a real backend provides faces) — contact
+  candidate fingertips are orange, and **vertices in active contact turn red**;
+- toggle **contact lines** to draw segments from each in-contact hand vertex to the
+  object surface; toggle **joints** for the 21-keypoint skeleton;
+- use the **frame** slider or **play / pause** + **speed** to scrub the 4D interaction;
+- the panel shows live active-contact count and min surface gap per frame.
+
+Point `--stage` at any stage bundle to compare, e.g. the coarse fit vs the final:
+
+```bash
+hoi-recon-view --run runs/demo --stage stage5_coarse_fit   # floating / penetrating
+hoi-recon-view --run runs/demo --stage stage7_contact_optim # contact-consistent
+```
+
 ## Real mode (requires third-party code + checkpoints)
 
 ```bash
@@ -100,8 +127,9 @@ hoi_recon/
   mock/scene.py     deterministic synthetic HOI + ground-truth contacts
   stages/           stage0..stage8
   backends/         real model adapters (HaMeR, WiLoR, SAM2, SAM-3D, ... )
+  viz/viser_app.py  interactive 4D HOI web viewer
 configs/            default / egocentric / third_person yaml
-scripts/            setup_third_party.sh, download_checkpoints.sh, run_demo.sh
+scripts/            setup_third_party.sh, download_checkpoints.sh, run_demo.sh, view_demo.sh
 third_party/        populated by setup_third_party.sh
 checkpoints/        populated by download_checkpoints.sh
 ```

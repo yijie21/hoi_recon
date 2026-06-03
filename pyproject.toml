@@ -18,8 +18,12 @@ dependencies = [
     "trimesh>=4.0",
 ]
 
+[project.optional-dependencies]
+viz = ["viser>=1.0"]
+
 [project.scripts]
 hoi-recon = "hoi_recon.cli:main"
+hoi-recon-view = "hoi_recon.viz.viser_app:main"
 
 [tool.setuptools.packages.find]
 include = ["hoi_recon*"]
