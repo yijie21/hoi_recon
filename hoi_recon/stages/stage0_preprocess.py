@@ -60,12 +60,17 @@ def run(ctx) -> Bundle:
         has_depth = False
         depth_dir = ""
     else:
-        from ..backends.perception import run_camera, run_depth
-        cam = run_camera(cfg, paths)
-        K, extr = cam["intrinsics"], cam["extrinsics"]
-        depth_dir = os.path.join(ctx.stage_dir(NAME), "depth")
-        run_depth(cfg, paths, depth_dir)
+        if not paths:
+            raise RuntimeError("real mode needs --video (no frames decoded)")
+        from ..backends.real_perception import run_stage0_geometry
+        geo = run_stage0_geometry(cfg, paths, ctx.stage_dir(NAME))
+        K, extr = geo["intrinsics"], geo["extrinsics"]
+        depth_dir = geo["depth_dir"]
+        H, W = geo["image_size"]
         has_depth = True
+        if cfg.backend.camera == "vipe":
+            log("camera: VIPE not wired — using MoGe intrinsics + identity "
+                "extrinsics (static-camera assumption)", "warn")
 
     meta = {
         "T": int(T), "H": int(H), "W": int(W), "fps": float(fps),

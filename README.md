@@ -96,24 +96,63 @@ hoi-recon-view --run runs/demo --stage stage5_coarse_fit   # floating / penetrat
 hoi-recon-view --run runs/demo --stage stage7_contact_optim # contact-consistent
 ```
 
-## Real mode (requires third-party code + checkpoints)
+## Real mode (GPU)
+
+**For step-by-step reproduction on a fresh machine (exact versions, checkpoint tree,
+troubleshooting) see [`REPRODUCE.md`](REPRODUCE.md).** Quick version:
 
 ```bash
-# 1. Clone third-party model repos into third_party/
-bash scripts/setup_third_party.sh
+# 0. one-time: env + third-party repos + python deps + weights
+conda env create -f environment.yml && conda activate hoi_recon
+bash scripts/setup_third_party.sh      # clone model repos into third_party/
+bash scripts/setup_real.sh             # torch(cu128) + MoGe + SAM2 + ultralytics + HaMeR deps
+bash scripts/download_checkpoints.sh   # fetch MoGe / SAM2 / WiLoR / HaMeR weights (hf+wget)
+#   then place MANO_RIGHT.pkl (license) — see that script's final notes
 
-# 2. Download checkpoints (review URLs/licenses first; MANO & some weights need registration)
-bash scripts/download_checkpoints.sh        # prints what it will do; pass --run to actually download
-
-# 3. Run with real backends
+# 1. run the composed pipeline on a clip
 python -m hoi_recon.cli --video path/to/clip.mp4 --out runs/clip01 --real \
     --hand hamer --object sam3d --depth moge
+hoi-recon-view --run runs/clip01           # view the 4D result
 ```
 
-Real backends are wired behind adapters in `hoi_recon/backends/`. Each adapter
-import-guards its third-party dependency and raises a clear `BackendNotAvailable`
-with setup instructions if the repo/weights are missing — so the rig degrades
-gracefully instead of crashing opaquely.
+### What each real backend uses (verified on an RTX 5080 / CUDA 12.8)
+
+| stage | backend | model | status |
+|------|---------|-------|--------|
+| 0 depth + intrinsics | `--depth moge` | **MoGe-2** (metric depth, camera K) | ✅ working |
+| 0 camera extrinsics | `--camera vipe` | VIPE | ⚠️ not wired → falls back to identity (static-camera) |
+| 1 hand detection | — | **WiLoR YOLO** detector (no detectron2) | ✅ working |
+| 1 object mask | — | **SAM 2.1** (point-prompted, propagated) | ✅ working |
+| 2 hand → MANO | `--hand hamer` | **HaMeR** (boxes from stage 1) | ⚙️ wired — needs **MANO** (license) |
+| 3 object shape + 6D | `--object sam3d` | SAM-3D-Objects | ⚠️ not wired → **depth-lift fallback**: SAM2 mask + MoGe depth → convex-hull mesh + 6D track (✅ working, model-free) |
+| 4–7 align / contact optim | — | this repo's numpy geometry | ✅ working |
+
+So stages **0, 1, 3** run real, GPU-accelerated, today; stages **4–7** are the repo's
+own algorithms. The single hard blocker for an end-to-end real run is the **hand
+stage**, because HaMeR (and WiLoR) need the **MANO** model, which is license-gated.
+
+### Real-mode notes / caveats
+
+- **MANO is license-gated.** Register at https://mano.is.tue.mpg.de, accept the
+  license, and place `MANO_RIGHT.pkl` (and `MANO_LEFT.pkl`) under `checkpoints/mano/`.
+  It cannot be downloaded via `hf`/`gdown`. Until then `--hand hamer` stops with a
+  clear `BackendNotAvailable` pointing here.
+- **chumpy / numpy.** The official MANO `.pkl` is loaded through `chumpy`, which needs
+  `numpy<1.24`; this env uses `numpy>=2` (for MoGe/SAM2). If the hand stage errors
+  inside chumpy, use a patched chumpy or a dedicated env for stage 2 — every other
+  stage works with `numpy>=2`.
+- **Camera extrinsics** fall back to identity (static camera). Wire VIPE in
+  `backends/real_perception.run_stage0_geometry` for moving-camera clips.
+- **Object branch.** `--object sam3d` currently uses the model-free *depth-lift*
+  reconstruction (SAM2 mask + MoGe depth). It recovers shape + translation; rotation
+  is identity (upgrade via ICP/CoTracker or the real SAM-3D-Objects model).
+- **Object prompt.** SAM2 is prompted at the detected hand-box centre (the held
+  object sits in the grasp); replace with an interacting-object detector or a user
+  click for tricky scenes.
+
+Real backends live in `hoi_recon/backends/real_perception.py`; each import-guards its
+dependency and raises a clear `BackendNotAvailable` with setup instructions if a repo
+or weight is missing — the pipeline degrades gracefully instead of crashing opaquely.
 
 ## Layout
 
@@ -126,10 +165,10 @@ hoi_recon/
   geometry.py       SE3, meshes, KNN, Umeyama, normals, penetration
   mock/scene.py     deterministic synthetic HOI + ground-truth contacts
   stages/           stage0..stage8
-  backends/         real model adapters (HaMeR, WiLoR, SAM2, SAM-3D, ... )
+  backends/real_perception.py  GPU backends: MoGe, SAM2, YOLO, depth-lift, HaMeR
   viz/viser_app.py  interactive 4D HOI web viewer
 configs/            default / egocentric / third_person yaml
-scripts/            setup_third_party.sh, download_checkpoints.sh, run_demo.sh, view_demo.sh
+scripts/            setup_third_party.sh, setup_real.sh, download_checkpoints.sh, run_demo.sh, view_demo.sh
 third_party/        populated by setup_third_party.sh
 checkpoints/        populated by download_checkpoints.sh
 ```

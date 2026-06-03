@@ -59,7 +59,33 @@ def run(ctx) -> Bundle:
                     "object_box": object_box},
             meta=meta)
 
-    from ..backends.perception import run_detect_track
-    out = run_detect_track(cfg, s0.assets.get("frames_dir"), ctx.stage_dir(NAME))
-    return Bundle(arrays=out["arrays"], meta=out.get("meta", {}),
-                  assets=out.get("assets", {}))
+    # --- real: YOLO hand detection + SAM2 object segmentation ---
+    from ..backends.real_perception import (detect_hands, segment_object,
+                                            _object_prompt, list_frames)
+    from ..logging_utils import log
+    frames_dir = s0.assets["frames_dir"]
+    frame_paths = list_frames(frames_dir)
+    H, W = int(s0.meta["H"]), int(s0.meta["W"])
+
+    hand_boxes, hand_valid = detect_hands(cfg, frame_paths)
+    log(f"detected hands: L={int(hand_valid[:,0].sum())} R={int(hand_valid[:,1].sum())} frames")
+    prompt = _object_prompt(hand_boxes, hand_valid, (H, W))
+    log(f"SAM2 object prompt @ ({prompt[0]:.0f},{prompt[1]:.0f})")
+    masks_dir, mask_paths = segment_object(cfg, frames_dir, frame_paths, prompt,
+                                           ctx.stage_dir(NAME))
+
+    object_box = np.full((T, 4), np.nan)
+    for i, mp in enumerate(mask_paths):
+        if mp is None:
+            continue
+        m = np.load(mp)
+        ys, xs = np.where(m)
+        if len(xs):
+            object_box[i] = [xs.min(), ys.min(), xs.max(), ys.max()]
+
+    return Bundle(
+        arrays={"hand_boxes": hand_boxes, "hand_valid": hand_valid,
+                "object_box": object_box},
+        meta={"has_masks": True, "hands": ["left", "right"],
+              "object_prompt": list(prompt)},
+        assets={"masks_dir": masks_dir})

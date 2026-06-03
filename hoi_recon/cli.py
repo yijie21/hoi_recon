@@ -36,7 +36,8 @@ def build_parser():
     p.add_argument("--stages", default="all", help="'all' | '0-7' | '2' | '0,2,4' | '5-'")
     p.add_argument("--force", action="store_true", help="recompute cached stages")
     # backend overrides
-    p.add_argument("--hand", default=None, choices=["hamer", "wilor", "hawor"])
+    p.add_argument("--hand", default=None,
+                   choices=["hamer", "wilor", "hawor", "depthlift"])
     p.add_argument("--object", default=None, choices=["sam3d", "bundlesdf", "foundationpose"])
     p.add_argument("--depth", default=None, choices=["moge", "depth_anything_v2", "metric3d"])
     p.add_argument("--camera", default=None, choices=["vipe", "droid_slam"])

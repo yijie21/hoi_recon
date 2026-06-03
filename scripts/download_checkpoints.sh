@@ -1,66 +1,59 @@
 #!/usr/bin/env bash
-# Download model weights into checkpoints/.
+# Download model weights into checkpoints/ for real mode.
 #
-# By default this script ONLY PRINTS what it would download (dry run), because
-# several weights require accepting a license / registering an account and cannot
-# be fetched blindly. Review every URL, then pass --run to actually download the
-# items that have a direct URL.
+# Downloads everything that is publicly fetchable (MoGe, SAM2, WiLoR detector,
+# HaMeR) via hf / wget. MANO is LICENSE-GATED and cannot be auto-downloaded —
+# you must register and place it yourself (instructions printed at the end).
 #
-#   bash scripts/download_checkpoints.sh           # dry run: print plan
-#   bash scripts/download_checkpoints.sh --run     # download the direct-URL items
+#   bash scripts/download_checkpoints.sh            # download the public weights
+#   bash scripts/download_checkpoints.sh --dry-run  # just print the plan
 #
-# Layout produced under checkpoints/:
-#   mano/MANO_RIGHT.pkl                 (manual: register at mano.is.tue.mpg.de)
-#   hamer/hamer_ckpts/                  (HaMeR provides a download script in-repo)
-#   wilor/                              (WiLoR weights, often on HuggingFace)
-#   sam2/sam2.1_hiera_large.pt
-#   cotracker/scaled_offline.pth
-#   moge/                              (MoGe weights on HuggingFace)
-#   depth_anything_v2/depth_anything_v2_vitl.pth
-#   sam-3d-objects/  foundationpose/  bundlesdf/   (per-repo instructions)
+# Run inside the hoi_recon env (needs the `hf` CLI):  conda activate hoi_recon
 set -u
 cd "$(dirname "$0")/.." || exit 1
 CK="$(pwd)/checkpoints"
 mkdir -p "$CK"
-RUN=0; [ "${1:-}" = "--run" ] && RUN=1
+DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
+run() { echo "+ $*"; [ $DRY -eq 1 ] || "$@"; }
 
-# label | dest (relative to checkpoints/) | url   ('-' url == manual/registration)
-ITEMS=(
-  "MANO right hand model|mano/MANO_RIGHT.pkl|-|register + accept license at https://mano.is.tue.mpg.de , then place MANO_RIGHT.pkl here"
-  "HaMeR weights|hamer/|-|run the in-repo downloader: cd third_party/hamer && bash fetch_demo_data.sh"
-  "WiLoR weights|wilor/|https://huggingface.co/spaces/rolpotamias/WiLoR/resolve/main/pretrained_models/wilor_final.ckpt|"
-  "SAM 2.1 large|sam2/sam2.1_hiera_large.pt|https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt|"
-  "CoTracker3 offline|cotracker/scaled_offline.pth|https://huggingface.co/facebook/cotracker3/resolve/main/scaled_offline.pth|"
-  "Depth-Anything-V2 vitl|depth_anything_v2/depth_anything_v2_vitl.pth|https://huggingface.co/depth-anything/Depth-Anything-V2-Large/resolve/main/depth_anything_v2_vitl.pth|"
-  "MoGe-v2|moge/|-|see third_party/MoGe README (weights auto-download via HuggingFace on first run)"
-  "SAM-3D-Objects|sam-3d-objects/|-|see third_party/sam-3d-objects README for weights"
-  "FoundationPose|foundationpose/|-|download weights per https://github.com/NVlabs/FoundationPose (Google Drive)"
-  "BundleSDF|bundlesdf/|-|BundleSDF needs LoFTR + nerf weights; see its README"
-  "VIPE|vipe/|-|see third_party/vipe README for weights"
-)
-
-dl() {  # url dest
-  local url="$1" dest="$2"
-  mkdir -p "$(dirname "$dest")"
-  if command -v wget >/dev/null 2>&1; then wget -c -O "$dest" "$url"
-  else curl -L -C - -o "$dest" "$url"; fi
-}
-
-echo "checkpoints dir: $CK"
-echo "mode: $([ $RUN -eq 1 ] && echo DOWNLOAD || echo 'DRY RUN (pass --run to download direct-URL items)')"
+echo "checkpoints -> $CK   (mode: $([ $DRY -eq 1 ] && echo DRY-RUN || echo DOWNLOAD))"
 echo
-for it in "${ITEMS[@]}"; do
-  IFS='|' read -r label dest url note <<< "$it"
-  echo "• $label  ->  checkpoints/$dest"
-  if [ "$url" = "-" ]; then
-    echo "    MANUAL: $note"
-  else
-    echo "    URL: $url"
-    if [ $RUN -eq 1 ]; then
-      echo "    downloading..."
-      dl "$url" "$CK/$dest" && echo "    done." || echo "    FAILED (check URL/access)."
-    fi
-  fi
-  echo
-done
-echo "Review licenses before use. MANO and some weights require registration."
+
+# --- MoGe-2 (depth + intrinsics) -----------------------------------------
+echo "## MoGe-2 (depth, stage0)"
+run hf download Ruicheng/moge-2-vitl-normal --local-dir "$CK/moge/moge-2-vitl-normal"
+
+# --- SAM 2.1 (object segmentation) ---------------------------------------
+echo "## SAM 2.1 large (segmentation, stage1)"
+run hf download facebook/sam2.1-hiera-large --local-dir "$CK/sam2/sam2.1-hiera-large"
+
+# --- WiLoR YOLO hand detector --------------------------------------------
+echo "## WiLoR detector + recon weights (hand detection, stage1/2)"
+run hf download rolpotamias/WiLoR --local-dir "$CK/wilor"
+
+# --- HaMeR (hand reconstruction) -----------------------------------------
+echo "## HaMeR demo weights (hand, stage2)"
+if [ ! -f "$CK/hamer/hamer_ckpts/checkpoints/hamer.ckpt" ]; then
+  run wget -c "https://www.cs.utexas.edu/~pavlakos/hamer/data/hamer_demo_data.tar.gz" \
+      -O "$CK/hamer/hamer_demo_data.tar.gz"
+  run tar -xzf "$CK/hamer/hamer_demo_data.tar.gz" -C "$CK/hamer" --strip-components=1
+else
+  echo "  (already present)"
+fi
+
+cat <<EOF
+
+==========================================================================
+MANUAL (license-gated) — required for the hand stage (--hand hamer/wilor):
+
+  MANO hand model:
+    1. Register + accept the license at https://mano.is.tue.mpg.de
+    2. Download MANO_v1_2 and copy the right-hand model to:
+         $CK/mano/MANO_RIGHT.pkl
+       (HaMeR also uses MANO_LEFT.pkl for left hands — copy it too.)
+
+  NOTE: loading the official MANO .pkl needs `chumpy`, which requires numpy<1.24.
+  If your env has numpy>=2 (default here), create a small side-env for the hand
+  stage or use a patched chumpy — see README "real-mode notes".
+==========================================================================
+EOF

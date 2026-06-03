@@ -53,7 +53,21 @@ def run(ctx) -> Bundle:
                     "contact_idx": contact_idx},
             meta=meta)
 
-    from ..backends.perception import run_hand
+    # --- real: hand reconstruction on stage-1 boxes ---
+    import os
+    from ..backends import real_perception as rp
     s1 = ctx.load("stage1_detect_track")
-    out = run_hand(cfg, s0.assets.get("frames_dir"), s1.arrays, s0.arrays)
-    return Bundle(arrays=out, meta={"hand_side": "right"})
+    frame_paths = rp.list_frames(s0.assets["frames_dir"])
+    boxes, valid = s1["hand_boxes"], s1["hand_valid"].astype(bool)
+
+    if cfg.backend.hand == "depthlift":      # MANO-free fallback (runs without license)
+        T = int(s0.meta["T"])
+        depth_paths = [os.path.join(s0.assets["depth_dir"], f"{i:05d}.npy") for i in range(T)]
+        out = rp.run_hand_depthlift(cfg, frame_paths, boxes, valid, depth_paths, s0["intrinsics"])
+        model_free = True
+    else:                                    # HaMeR / WiLoR -> MANO (license-gated)
+        out = rp.run_hand(cfg, frame_paths, boxes, valid)
+        model_free = False
+
+    arrays = {k: v for k, v in out.items() if v is not None}
+    return Bundle(arrays=arrays, meta={"hand_side": "right", "model_free": model_free})

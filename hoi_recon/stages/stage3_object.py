@@ -67,7 +67,23 @@ def run(ctx) -> Bundle:
                     "poses": poses, "radius": np.array(radius)},
             meta=meta)
 
-    from ..backends.perception import run_object
+    # --- real: model-free object from SAM mask + MoGe depth (depth-lift) ---
+    import os
+    from ..backends.real_perception import run_object_depthlift, list_frames
     s1 = ctx.load("stage1_detect_track")
-    out = run_object(cfg, s0.assets.get("frames_dir"), s1.arrays, None, s0.arrays)
-    return Bundle(arrays=out, meta={"branch": cfg.backend.object})
+    frame_paths = list_frames(s0.assets["frames_dir"])
+    depth_dir = s0.assets["depth_dir"]
+    masks_dir = s1.assets["masks_dir"]
+    depth_paths = [os.path.join(depth_dir, f"{i:05d}.npy") for i in range(T)]
+    mask_paths = [os.path.join(masks_dir, f"{i:05d}.npy") for i in range(T)]
+    mask_paths = [p if os.path.exists(p) else None for p in mask_paths]
+
+    if cfg.backend.object == "sam3d":
+        log("object: SAM-3D-Objects not wired — using model-free depth-lift "
+            "(SAM2 mask + MoGe depth -> convex-hull mesh + 6D track)", "warn")
+    out = run_object_depthlift(cfg, frame_paths, mask_paths, depth_paths,
+                               s0["intrinsics"])
+    return Bundle(arrays={"verts": out["verts"], "faces": out["faces"],
+                          "poses": out["poses"], "radius": out["radius"]},
+                  meta={"branch": cfg.backend.object, "model_free": True,
+                        "anchor_frame": int(out["anchor_frame"])})
