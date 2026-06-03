@@ -1,0 +1,21 @@
+name: hoi_recon
+# Core environment is intentionally LIGHT so that `mock` mode runs anywhere
+# (no GPU, no model weights). Heavy backend deps (torch, pytorch3d, etc.) are
+# installed per third-party repo — see scripts/setup_third_party.sh and the
+# requirements-backends.txt notes.
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - numpy>=1.24
+  - scipy>=1.10
+  - pyyaml>=6.0
+  - tqdm>=4.65
+  - matplotlib>=3.7
+  - pip:
+      - opencv-python>=4.8
+      - imageio>=2.31
+      - imageio-ffmpeg>=0.4
+      - trimesh>=4.0
+      - -e .

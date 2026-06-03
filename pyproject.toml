@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hoi_recon"
+version = "0.1.0"
+description = "Compositional 4D hand-object interaction reconstruction rig"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pyyaml>=6.0",
+    "tqdm>=4.65",
+    "matplotlib>=3.7",
+    "opencv-python>=4.8",
+    "imageio>=2.31",
+    "trimesh>=4.0",
+]
+
+[project.scripts]
+hoi-recon = "hoi_recon.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["hoi_recon*"]

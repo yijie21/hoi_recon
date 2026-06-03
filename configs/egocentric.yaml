@@ -1,0 +1,8 @@
+# Egocentric / head-mounted capture. Swap the hand backend to HaWoR
+# (world-space egocentric hand motion); everything downstream is unchanged.
+mock: false
+backend:
+  hand: hawor
+  object: bundlesdf    # RGB-D neural SDF accumulates shape across the clip
+  depth: moge
+  camera: vipe

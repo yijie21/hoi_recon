@@ -1,0 +1,31 @@
+# Default config. CLI flags override these; this file overrides built-in defaults.
+mock: true
+seed: 0
+num_frames: 48
+video: null
+
+backend:
+  hand: hamer          # hamer | wilor | hawor
+  object: sam3d        # sam3d | bundlesdf | foundationpose
+  depth: moge          # moge | depth_anything_v2 | metric3d
+  camera: vipe         # vipe | droid_slam
+
+contact:
+  dist_thresh_m: 0.02      # 2 cm contact validity gate (CHOIR)
+  normal_thresh_deg: 60.0  # surface-normal compatibility cone
+  knn_k: 50
+
+optim:                  # stage7 contact-aware optimization (normalized energies)
+  iters: 200
+  lr: 0.02
+  w_contact: 1.0
+  w_pen: 0.3
+  w_temporal: 0.2
+  w_anchor: 0.02
+
+smoothing:
+  window: 5             # stage5 temporal smoothing window
+
+paths:
+  third_party: third_party
+  checkpoints: checkpoints

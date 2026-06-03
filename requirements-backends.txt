@@ -1,0 +1,27 @@
+# Heavy dependencies required ONLY for real backends (not for mock mode).
+# These are best installed *inside each third-party repo's own instructions*,
+# because versions (esp. torch / CUDA / pytorch3d) are model-specific and
+# frequently conflict. Listed here as a reference checklist.
+#
+# Install torch matching your CUDA first, e.g.:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#
+# Hand reconstruction (HaMeR / WiLoR / HaWoR):
+#   pip install pytorch-lightning chumpy smplx
+#   # MANO model + HaMeR/WiLoR weights -> see scripts/download_checkpoints.sh
+#
+# Object segmentation / tracking:
+#   # SAM 2:        pip install -e third_party/sam2
+#   # CoTracker:    pip install -e third_party/co-tracker
+#
+# Object shape / 6D pose:
+#   # SAM-3D-Objects, BundleSDF, FoundationPose each have their own env;
+#   # FoundationPose/BundleSDF need nvdiffrast + Eigen + custom CUDA kernels.
+#
+# Depth / camera:
+#   # MoGe:               pip install -e third_party/MoGe
+#   # Depth-Anything-V2:  pip install -e third_party/Depth-Anything-V2
+#   # VIPE:               see third_party/vipe instructions
+#
+# Optimization (optional, faster stage7):
+#   torch            # stage7 auto-uses torch autograd if available, else numpy Adam

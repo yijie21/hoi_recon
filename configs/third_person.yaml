@@ -1,0 +1,7 @@
+# Third-person / in-the-wild capture (CHOIR's setting).
+mock: false
+backend:
+  hand: hamer          # HaMeR + Dyn-HaMR for world-space stabilization
+  object: sam3d        # model-free unknown object (primary branch)
+  depth: moge
+  camera: vipe
