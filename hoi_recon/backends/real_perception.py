@@ -396,9 +396,16 @@ def run_joint_optimizer(cfg, run_dir, s2, s6, frame_paths, mask_paths, K):
     out_npz = os.path.join(jo_dir, "out.npz")
     if not os.path.exists(out_npz):
         hnpz = os.path.join(jo_dir, "hand.npz")
+        # hand_side (1=right, 0=left per frame): the optimizer must mirror its
+        # right-hand MANO layer output on left-hand frames (HaMeR params are always
+        # right-hand). Default to right for stage-2 bundles predating this key.
+        hand_side = s2.get("hand_side")
+        if hand_side is None:
+            hand_side = np.ones(len(s2["verts"]), np.int64)
         np.savez(hnpz, mano_global=s2["mano_global"], mano_pose=s2["mano_pose"],
                  mano_betas=s2["mano_betas"], verts=s2["verts"], joints=s2["joints"],
-                 contact_idx=s2["contact_idx"], hand_faces=s2["hand_faces"])
+                 contact_idx=s2["contact_idx"], hand_faces=s2["hand_faces"],
+                 hand_side=hand_side)
         onpz = os.path.join(jo_dir, "obj.npz")
         np.savez(onpz, verts=np.asarray(s6["obj_verts"]), faces=s6["obj_faces"],
                  vertex_colors=s6["obj_colors"], poses=s6["obj_poses"])
@@ -885,10 +892,17 @@ def run_hand(cfg, frame_paths, hand_boxes, hand_valid, depth_paths=None, K=None)
     betas_all = np.zeros((T, 10))
     kp2d_all = np.zeros((T, 21, 2))                            # full-image px
     side_all = np.zeros(T, np.int64)                          # 1=right,0=left
+    # Single-hand assumption: decide the side ONCE by majority vote over the clip.
+    # YOLO occasionally flips the side label on isolated frames (e.g. 1 'right'
+    # among 162 'left' detections); honouring those per frame mirrors the MANO
+    # estimate on exactly those frames and corrupts the track. The box from the
+    # minority slot is still used (it is the same physical hand, mislabelled) —
+    # only the side flag fed to HaMeR is forced to the dominant one.
+    dom = 1 if hand_valid[:, 1].sum() >= hand_valid[:, 0].sum() else 0
     ref = None
     for i, p in enumerate(frame_paths):
         img = cv2.imread(p)[:, :, ::-1].copy()                  # BGR->RGB
-        slot = 1 if hand_valid[i, 1] else (0 if hand_valid[i, 0] else None)
+        slot = dom if hand_valid[i, dom] else ((1 - dom) if hand_valid[i, 1 - dom] else None)
         if slot is None:
             if i > 0:
                 verts_all[i], joints_all[i] = verts_all[i - 1], joints_all[i - 1]
@@ -896,7 +910,7 @@ def run_hand(cfg, frame_paths, hand_boxes, hand_valid, depth_paths=None, K=None)
                 kp2d_all[i], side_all[i] = kp2d_all[i-1], side_all[i-1]
             continue
         box = hand_boxes[i, slot][None, :]
-        right = np.array([1 if slot == 1 else 0])
+        right = np.array([dom])
         ds = ViTDetDataset(model_cfg, img, box, right, rescale_factor=2.0)
         batch = torch.utils.data.default_collate([ds[0]])
         batch = {k: (v.to(dev) if torch.is_tensor(v) else v) for k, v in batch.items()}
@@ -919,6 +933,7 @@ def run_hand(cfg, frame_paths, hand_boxes, hand_valid, depth_paths=None, K=None)
             verts_all[i], joints_all[i] = v - c + anchor, j - c + anchor
         else:
             pc = out["pred_cam"][0].cpu().numpy()
+            pc[1] *= s                  # crop-cam tx is in mirrored-crop coords for left hands
             bc = batch["box_center"][0].cpu().numpy()
             bs = float(batch["box_size"][0].cpu().numpy())
             isz = batch["img_size"][0].cpu().numpy()
@@ -935,6 +950,7 @@ def run_hand(cfg, frame_paths, hand_boxes, hand_valid, depth_paths=None, K=None)
         bc = batch["box_center"][0].cpu().numpy()
         bs = float(batch["box_size"][0].cpu().numpy())
         kp = out["pred_keypoints_2d"][0].cpu().numpy()          # crop-normalized
+        kp[:, 0] *= s                                           # un-mirror left-hand crops
         kp2d_all[i] = bc[None, :] + kp * bs                     # -> full-image px
         ref = i if ref is None else ref
 

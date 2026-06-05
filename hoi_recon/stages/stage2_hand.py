@@ -72,4 +72,7 @@ def run(ctx) -> Bundle:
         model_free = False
 
     arrays = {k: v for k, v in out.items() if v is not None}
-    return Bundle(arrays=arrays, meta={"hand_side": "right", "model_free": model_free})
+    side = out.get("hand_side")          # per-frame 1=right, 0=left (HaMeR branch)
+    side_name = ("right" if side is None
+                 else ("right" if float(np.mean(side)) >= 0.5 else "left"))
+    return Bundle(arrays=arrays, meta={"hand_side": side_name, "model_free": model_free})
