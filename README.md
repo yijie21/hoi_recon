@@ -108,49 +108,83 @@ bash scripts/setup_third_party.sh      # clone model repos into third_party/
 bash scripts/setup_real.sh             # torch(cu128) + MoGe + SAM2 + ultralytics + HaMeR deps
 bash scripts/download_checkpoints.sh   # fetch MoGe / SAM2 / WiLoR / HaMeR weights (hf+wget)
 #   then place MANO_RIGHT.pkl (license) — see that script's final notes
+#   plus the second conda env for the heavy differentiable components:
+#   `sam3d-objects` (SAM-3D-Objects + PyTorch3D; see third_party/sam-3d-objects/doc/setup.md)
 
-# 1. run the composed pipeline on a clip
-python -m hoi_recon.cli --video /mnt/yijie/code/hoi_recon/examples/grab.mp4 --out runs/grab --real \
-    --hand hamer --object sam3d --depth moge
+# 1. run the composed pipeline on a clip — THE VALIDATED CONFIGURATION
+python -m hoi_recon.cli --video examples/grab.mp4 --out runs/grab --real \
+    --hand hamer --object sam3d --depth moge --config configs/new.yaml
 hoi-recon-view --run runs/grab           # view the 4D result
 ```
+
+**`--config configs/new.yaml` matters.** It switches on the redesigned
+differentiable pipeline (the result in `runs/grab`):
+
+- `backend.object_pose: render_compare` — object **rotation** is recovered from the
+  object's own image evidence: a fast numpy silhouette tracker
+  (`hoi_recon/object_pose_track.py`) seeds a **differentiable render-and-compare**
+  refinement (PyTorch3D; silhouette IoU + a *photometric* term against the SAM-3D
+  textured mesh, which recovers the spin-about-axis DOF a silhouette can't see).
+- `optim.differentiable: true` — stage 7 runs the **joint optimizer**: MANO
+  articulation + object 6D optimized together under silhouette / photometric /
+  contact / non-penetration energies, so the fingers actually curl to grasp
+  (instead of the rigid-hand fallback in `hoi_recon/joint_grasp.py`).
+- `backend.sam3d_env: sam3d-objects` — the heavy components (SAM-3D mesh
+  generation, render-compare, joint optimizer, optionally VGGT / FoundationPose)
+  run as cached **subprocesses in that second conda env**, because their torch /
+  numpy pins conflict with this env's MoGe/SAM2 stack.
+
+Without `--config configs/new.yaml` you get the older path: silhouette-only object
+rotation and the rigid (non-articulated) grasp optimizer.
 
 ### What each real backend uses (verified on an RTX 5080 / CUDA 12.8)
 
 | stage | backend | model | status |
 |------|---------|-------|--------|
-| 0 depth + intrinsics | `--depth moge` | **MoGe-2** (metric depth, camera K) | ✅ working |
-| 0 depth + **camera poses** | `--depth da3` | **Depth-Anything-3** (metric depth + intrinsics + **real extrinsics**; ViPE's camera engine is merged into DA3) | ⚙️ wired (clone+install DA3 to use) |
-| 0 camera extrinsics | (default) | identity fallback, or DA3 above | ✅ identity; real poses via `--depth da3` |
+| 0 depth + intrinsics | `--depth moge` | **MoGe-2** (metric depth, camera K; identity extrinsics) | ✅ validated path |
+| 0 consistent camera + depth | `--depth vggt` | **VGGT** (one consistent camera traj + depth, sam3d env subprocess) | ⚙️ wired+validated, but **up-to-scale** — metric scale resolution inside the optimizer is WIP |
+| 0 depth + camera poses | `--depth da3` | **Depth-Anything-3** (metric depth + intrinsics + real extrinsics) | ⚙️ wired (clone+install DA3 to use) |
 | 1 hand detection | — | **WiLoR YOLO** detector (no detectron2) | ✅ working |
 | 1 object mask | — | **SAM 2.1** (point-prompted, propagated) | ✅ working |
-| 2 hand → MANO | `--hand hamer` | **HaMeR** (boxes from stage 1) | ⚙️ wired — needs **MANO** (license) |
-| 3 object shape + 6D | `--object sam3d` | SAM-3D-Objects | ⚠️ not wired → **depth-lift fallback**: SAM2 mask + MoGe depth → convex-hull mesh + 6D track (✅ working, model-free) |
-| 4–7 align / contact optim | — | this repo's numpy geometry | ✅ working |
+| 2 hand → MANO | `--hand hamer` | **HaMeR** (boxes from stage 1; depth-anchored into the metric frame; MANO params threaded through to the stage-7 optimizer) | ✅ working — needs **MANO** (license) |
+| 2 hand, MANO-free | `--hand depthlift` | hand box + MoGe depth → corresponded 3D grid | ✅ working (fallback, no license needed) |
+| 3 object shape | `--object sam3d` | **SAM-3D-Objects** textured mesh (sam3d env subprocess), metric-scaled from depth; fails soft to the model-free **depth-lift** convex hull | ✅ working |
+| 3 object 6D pose | `object_pose: render_compare` | silhouette tracker → differentiable render-and-compare (silhouette + photometric); alternatives: `silhouette`, `foundationpose`, `hand` | ✅ working |
+| 5–7 align / smooth / joint optim | — | this repo's geometry + the differentiable joint optimizer (sam3d env) | ✅ working |
 
-So stages **0, 1, 3** run real, GPU-accelerated, today; stages **4–7** are the repo's
-own algorithms. The single hard blocker for an end-to-end real run is the **hand
-stage**, because HaMeR (and WiLoR) need the **MANO** model, which is license-gated.
+All stages run end-to-end on real video today (with MANO in place for `--hand
+hamer`; use `--hand depthlift` to run without the license). Stage 8 additionally
+writes reprojection-overlay videos (`*_reproj.mp4` in the run dir) to validate the
+reconstruction against the input video.
 
 ### Real-mode notes / caveats
 
+- **Two conda envs.** The main `hoi_recon` env runs stages 0–2 (MoGe, SAM2, YOLO,
+  HaMeR). The `sam3d-objects` env (name configurable via `backend.sam3d_env`) hosts
+  SAM-3D-Objects, PyTorch3D render-compare, the joint optimizer, VGGT and
+  FoundationPose — invoked via `conda run` subprocesses with results cached per run
+  dir (e.g. `stage3_object/sam3d/object.npz`, `stage3_object/rc/poses.npz`,
+  `stage7_contact_optim/jo/out.npz`; delete a cache file to recompute that piece).
 - **MANO is license-gated.** Register at https://mano.is.tue.mpg.de, accept the
-  license, and place `MANO_RIGHT.pkl` (and `MANO_LEFT.pkl`) under `checkpoints/mano/`.
-  It cannot be downloaded via `hf`/`gdown`. Until then `--hand hamer` stops with a
-  clear `BackendNotAvailable` pointing here.
-- **chumpy / numpy.** The official MANO `.pkl` is loaded through `chumpy`, which needs
-  `numpy<1.24`; this env uses `numpy>=2` (for MoGe/SAM2). If the hand stage errors
-  inside chumpy, use a patched chumpy or a dedicated env for stage 2 — every other
-  stage works with `numpy>=2`.
+  license, and place `MANO_RIGHT.pkl` under `checkpoints/mano/` (flat or the
+  `mano_v1_2/models/` archive layout both work). It cannot be downloaded via
+  `hf`/`gdown`. Until then `--hand hamer` stops with a clear `BackendNotAvailable`
+  pointing here — or run MANO-free with `--hand depthlift`.
+- **chumpy / numpy.** The official MANO `.pkl` is loaded through `chumpy`, whose
+  import breaks on `numpy>=1.24`; this repo patches the removed numpy aliases at
+  runtime (`_patch_numpy_for_chumpy`) so HaMeR works in the main env without
+  downgrading numpy.
+- **Hand placement.** HaMeR's own absolute depth is unreliable (fabricated focal
+  length), so the hand is re-anchored to the MoGe metric depth at the hand box —
+  hand and object share one metric camera frame.
+- **Object stays image-grounded.** A deliberate design invariant: the depth-lift
+  centroid track reprojects onto the real object to a few px, so the optimizers
+  keep the object on that track (strong prior) and move/articulate the **hand** to
+  close the grasp — not the other way around.
 - **Camera extrinsics.** With `--depth moge` they are identity (static-camera
-  assumption). For moving-camera clips use **`--depth da3`** (Depth-Anything-3),
-  which predicts metric depth *and* real camera poses in one multi-view pass — ViPE's
-  camera-pose engine was merged into DA3. Clone+install it first:
-  `bash scripts/setup_third_party.sh && pip install -e third_party/Depth-Anything-3`
-  (weights auto-download from HF, or pre-fetch `depth-anything/DA3METRIC-LARGE`).
-- **Object branch.** `--object sam3d` currently uses the model-free *depth-lift*
-  reconstruction (SAM2 mask + MoGe depth). It recovers shape + translation; rotation
-  is identity (upgrade via ICP/CoTracker or the real SAM-3D-Objects model).
+  assumption). For moving-camera clips use `--depth vggt` (consistent geometry,
+  scale WIP) or `--depth da3` (metric depth + real poses;
+  `pip install -e third_party/Depth-Anything-3` first).
 - **Object prompt.** SAM2 is prompted at the detected hand-box centre (the held
   object sits in the grasp); replace with an interacting-object detector or a user
   click for tricky scenes.
@@ -168,13 +202,20 @@ hoi_recon/
   config.py         yaml + CLI config
   bundle.py         on-disk inter-stage IO (arrays.npz + meta.json + assets)
   geometry.py       SE3, meshes, KNN, Umeyama, normals, penetration
+  object_pose_track.py  silhouette-vs-SAM2-mask object rotation tracker (numpy/cv2)
+  joint_grasp.py    rigid joint hand+object grasp optimizer (torch; non-articulated fallback)
   mock/scene.py     deterministic synthetic HOI + ground-truth contacts
   stages/           stage0..stage8
-  backends/real_perception.py  GPU backends: MoGe, SAM2, YOLO, depth-lift, HaMeR
+  backends/real_perception.py  GPU backends: MoGe, VGGT, DA3, SAM2, YOLO, HaMeR,
+                    SAM-3D, depth-lift, render-compare + joint-optimizer subprocess drivers
   viz/viser_app.py  interactive 4D HOI web viewer
-configs/            default / egocentric / third_person yaml
+  viz/reproject.py  reprojection-overlay validation videos
+configs/            new.yaml (VALIDATED differentiable pipeline) / default / egocentric / third_person
 scripts/            setup_third_party.sh, setup_real.sh, download_checkpoints.sh, run_demo.sh, view_demo.sh
-third_party/        populated by setup_third_party.sh
+scripts/subprocess_entries/  entry scripts run in the sam3d-objects env (sam3d_infer.py,
+                    render_compare.py, joint_opt.py, vggt_geom.py, fp_track.py);
+                    installed into the third_party/ clones by setup_third_party.sh
+third_party/        populated by setup_third_party.sh (gitignored)
 checkpoints/        populated by download_checkpoints.sh
 ```
 

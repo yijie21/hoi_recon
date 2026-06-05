@@ -2,7 +2,7 @@
 # This is the VALIDATED configuration (the result in runs/grab):
 #   python -m hoi_recon.cli --video examples/grab.mp4 --out runs/grab --real \
 #       --hand hamer --object sam3d --depth moge --config configs/new.yaml
-#   hoi_recon-view --run runs/grab
+#   hoi-recon-view --run runs/grab
 #
 # VGGT consistent geometry is also wired and validated (`--depth vggt`), but it is
 # up-to-scale; resolving its metric scale inside the optimizer (from the MANO hand)

@@ -34,6 +34,7 @@ REPOS=(
   "MoGe|https://github.com/microsoft/MoGe"
   "Depth-Anything-V2|https://github.com/DepthAnything/Depth-Anything-V2"
   "Depth-Anything-3|https://github.com/ByteDance-Seed/Depth-Anything-3"
+  "vggt|https://github.com/facebookresearch/vggt"
   "vipe|https://github.com/nv-tlabs/vipe"
 )
 
@@ -61,6 +62,25 @@ for entry in "${REPOS[@]}"; do
     fail+=("$name")
   fi
 done
+
+# Install this repo's subprocess entry scripts into the cloned repos. The pipeline
+# invokes them via `conda run -n <sam3d_env> python third_party/<repo>/<script>.py`
+# (they must live inside the repo: they import its packages and run with cwd=repo).
+# Tracked source of truth: scripts/subprocess_entries/<repo>/*.py — third_party/ is
+# gitignored, so without this copy a fresh clone cannot run the new.yaml pipeline.
+ENTRIES="$ROOT/scripts/subprocess_entries"
+if [ -d "$ENTRIES" ]; then
+  echo
+  for d in "$ENTRIES"/*/; do
+    name="$(basename "$d")"
+    if [ -d "$DST/$name" ]; then
+      cp "$d"*.py "$DST/$name/"
+      echo "[entry] installed $(ls "$d" | tr '\n' ' ')-> third_party/$name/"
+    else
+      echo "[entry] skip $name (repo not cloned)"
+    fi
+  done
+fi
 
 echo
 echo "==== summary ===="
