@@ -85,6 +85,7 @@ def launch(run_dir: str, stage: str = "stage7_contact_optim",
     obj_faces = b["obj_faces"].astype(np.int32)
     obj_poses = b["obj_poses"]                         # [T,4,4]
     contact_idx = b["contact_idx"].astype(int)
+    obj_colors = b.get("obj_colors")                   # [No,3] uint8 (textured backends) or None
     contact_map = b.get("contact_map")                 # [T,Nc] or None
     gaps = b.get("gaps")
     hand_joints = b.get("hand_joints")
@@ -97,9 +98,17 @@ def launch(run_dir: str, stage: str = "stage7_contact_optim",
                           cell_size=0.05, position=(0.0, 0.06, 0.6))
 
     # --- static handles, updated per frame ---
-    obj_handle = server.scene.add_mesh_simple(
-        "/object", obj_verts, obj_faces, color=OBJECT_COLOR,
-        opacity=0.65, flat_shading=False, side="double")
+    if obj_colors is not None:
+        # textured object (e.g. SAM-3D): render real per-vertex colors
+        import trimesh
+        _om = trimesh.Trimesh(vertices=np.asarray(obj_verts), faces=obj_faces,
+                              process=False)
+        _om.visual.vertex_colors = np.asarray(obj_colors, np.uint8)
+        obj_handle = server.scene.add_mesh_trimesh("/object", _om)
+    else:
+        obj_handle = server.scene.add_mesh_simple(
+            "/object", obj_verts, obj_faces, color=OBJECT_COLOR,
+            opacity=0.65, flat_shading=False, side="double")
     if hand_faces is not None:
         hand_handle = server.scene.add_mesh_simple(
             "/hand", hand_verts[0], hand_faces.astype(np.int32),

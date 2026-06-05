@@ -78,12 +78,66 @@ def run(ctx) -> Bundle:
     mask_paths = [os.path.join(masks_dir, f"{i:05d}.npy") for i in range(T)]
     mask_paths = [p if os.path.exists(p) else None for p in mask_paths]
 
+    out, branch, textured = None, cfg.backend.object, False
     if cfg.backend.object == "sam3d":
-        log("object: SAM-3D-Objects not wired — using model-free depth-lift "
-            "(SAM2 mask + MoGe depth -> convex-hull mesh + 6D track)", "warn")
-    out = run_object_depthlift(cfg, frame_paths, mask_paths, depth_paths,
-                               s0["intrinsics"])
-    return Bundle(arrays={"verts": out["verts"], "faces": out["faces"],
-                          "poses": out["poses"], "radius": out["radius"]},
-                  meta={"branch": cfg.backend.object, "model_free": True,
+        from ..backends.real_perception import run_object_sam3d
+        try:
+            out = run_object_sam3d(cfg, ctx.stage_dir(NAME), frame_paths,
+                                   mask_paths, depth_paths, s0["intrinsics"])
+            branch, textured = "sam3d", True
+        except Exception as e:                 # fail soft to the working depth-lift
+            log(f"object: SAM-3D failed ({e}); falling back to depth-lift", "warn")
+            out = None
+    if out is None:
+        out = run_object_depthlift(cfg, frame_paths, mask_paths, depth_paths,
+                                   s0["intrinsics"])
+
+    # Object 6D pose. Selectable via cfg.backend.object_pose:
+    #   'silhouette'     (default) keep the image-grounded depth-lift translation and
+    #                    recover ROTATION by matching the rendered mesh silhouette to
+    #                    the SAM2 mask each frame. Best on monocular video.
+    #   'foundationpose' full 6D from the FoundationPose RGB-D tracker (needs reliable
+    #                    sensor depth; on monocular MoGe depth it tends to drift).
+    #   'hand'           inherit rotation from the grasping hand (wrist proxy).
+    centroids = out["poses"][:, :3, 3]
+    pose_method = (cfg.backend.get("object_pose", "silhouette")
+                   if hasattr(cfg.backend, "get") else "silhouette")
+    poses = np.tile(np.eye(4), (T, 1, 1))
+    poses[:, :3, 3] = centroids
+    rot_src = pose_method
+    try:
+        if pose_method == "foundationpose":
+            from ..backends.real_perception import run_object_pose_foundationpose
+            poses = run_object_pose_foundationpose(
+                cfg, ctx.stage_dir(NAME), frame_paths, mask_paths, depth_paths,
+                s0["intrinsics"], out["verts"], out["faces"])
+        elif pose_method == "hand":
+            from ..backends.real_perception import couple_object_to_hand
+            s2 = ctx.load("stage2_hand")
+            poses = couple_object_to_hand(out["poses"], s2["joints"],
+                                          s1["hand_valid"].astype(bool), float(out["radius"]))
+        else:                                   # 'silhouette' (default) or 'render_compare'
+            from ..object_pose_track import track_object_rotation
+            visible = np.array([(np.load(p).sum() > 2000) if p else False
+                                for p in mask_paths])
+            poses[:, :3, :3] = track_object_rotation(
+                out["verts"], centroids, mask_paths, s0["intrinsics"], visible, log=log)
+            if pose_method == "render_compare" and textured:
+                # differentiable refinement (silhouette + photometric -> recovers spin)
+                from ..backends.real_perception import run_object_pose_render_compare
+                poses = run_object_pose_render_compare(
+                    cfg, ctx.stage_dir(NAME), frame_paths, mask_paths, s0["intrinsics"],
+                    out["verts"], out["faces"], out["vertex_colors"], poses)
+    except Exception as e:
+        rot_src = "fallback(translation-only)"
+        log(f"object: pose method '{pose_method}' failed ({e}); "
+            f"image-grounded translation + identity rotation", "warn")
+
+    arrays = {"verts": out["verts"], "faces": out["faces"],
+              "poses": poses, "radius": out["radius"]}
+    if textured:
+        arrays["colors"] = out["vertex_colors"]
+    return Bundle(arrays=arrays,
+                  meta={"branch": branch, "textured": textured,
+                        "object_rotation": rot_src,
                         "anchor_frame": int(out["anchor_frame"])})

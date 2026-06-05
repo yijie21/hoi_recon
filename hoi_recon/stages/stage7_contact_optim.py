@@ -51,6 +51,48 @@ def _build_cache(hand_c, hand_pen, ow, on, d, dist_thresh, cos_thresh):
     return con_a0, con_h, pen_oc0, pen_rloc, max(n_active, 1)
 
 
+def _object_only_optim(hand_verts, hand_c, obj_verts, obj_faces, poses0, o,
+                       dist_thresh, cos_thresh):
+    """Object-translation-only contact optimization (numpy Adam, analytic grads).
+    Pulls active hand verts onto object-surface anchors with one-sided radial
+    non-penetration; the hand is held fixed. Returns the per-frame object
+    translation delta d[T,3]. Used in mock mode (real mode uses joint_optimize)."""
+    T, Nh = poses0.shape[0], hand_verts.shape[1]
+    ow, on = all_object_world(obj_verts, obj_faces, poses0)
+    norm_pen = float(T * Nh)
+    d = np.zeros((T, 3))
+    m = np.zeros_like(d); v = np.zeros_like(d)
+    b1, b2, eps = 0.9, 0.999, 1e-8
+    cache = None
+    for it in range(int(o.iters)):
+        if it % CACHE_PERIOD == 0:
+            cache = _build_cache(hand_c, hand_verts, ow, on, d, dist_thresh, cos_thresh)
+        con_a0, con_h, pen_oc0, pen_rloc, n_active = cache
+        g = np.zeros_like(d)
+        for i in range(T):
+            if con_h[i].shape[0]:
+                res = con_a0[i] + d[i] - con_h[i]
+                g[i] += o.w_contact * 2.0 * res.sum(0) / n_active
+        for i in range(T):
+            r = hand_verts[i] - (pen_oc0[i] + d[i])
+            rn = np.linalg.norm(r, axis=1)
+            depth = np.clip(pen_rloc[i] - rn, 0, None)
+            mask = depth > 0
+            if mask.any():
+                dirv = r[mask] / np.clip(rn[mask, None], 1e-9, None)
+                g[i] += o.w_pen * 2.0 * (depth[mask, None] * dirv).sum(0) / norm_pen
+        diff = d[1:] - d[:-1]
+        g[1:] += o.w_temporal * 2.0 * diff
+        g[:-1] -= o.w_temporal * 2.0 * diff
+        g += o.w_anchor * 2.0 * d
+        m = b1 * m + (1 - b1) * g
+        v = b2 * v + (1 - b2) * (g * g)
+        mh = m / (1 - b1 ** (it + 1))
+        vh = v / (1 - b2 ** (it + 1))
+        d -= o.lr * mh / (np.sqrt(vh) + eps)
+    return d
+
+
 def run(ctx) -> Bundle:
     cfg = ctx.cfg
     s6 = ctx.load("stage6_rectify")
@@ -65,62 +107,43 @@ def run(ctx) -> Bundle:
     poses0 = s6["obj_poses"].copy()
     T, Nh = poses0.shape[0], hand_verts.shape[1]
 
-    ow, on = all_object_world(obj_verts, obj_faces, poses0)
-    norm_pen = float(T * Nh)
-
-    d = np.zeros((T, 3))
-    m = np.zeros_like(d); v = np.zeros_like(d)
-    b1, b2, eps = 0.9, 0.999, 1e-8
-    cache = None
-    d_cache = np.zeros_like(d)
-
-    for it in range(int(o.iters)):
-        if it % CACHE_PERIOD == 0:
-            cache = _build_cache(hand_c, hand_verts, ow, on, d,
-                                 dist_thresh, cos_thresh)
-            d_cache = d.copy()
-        con_a0, con_h, pen_oc0, pen_rloc, n_active = cache
-
-        g = np.zeros_like(d)
-        loss = 0.0
-        # contact (normalized by active count)
-        for i in range(T):
-            if con_h[i].shape[0]:
-                res = con_a0[i] + d[i] - con_h[i]
-                loss += o.w_contact * float((res ** 2).sum()) / n_active
-                g[i] += o.w_contact * 2.0 * res.sum(0) / n_active
-        # penetration (one-sided, radial; object centroid moves with d; normalized)
-        for i in range(T):
-            r = hand_verts[i] - (pen_oc0[i] + d[i])
-            rn = np.linalg.norm(r, axis=1)
-            depth = np.clip(pen_rloc[i] - rn, 0, None)
-            mask = depth > 0
-            if mask.any():
-                loss += o.w_pen * float((depth[mask] ** 2).sum()) / norm_pen
-                dirv = r[mask] / np.clip(rn[mask, None], 1e-9, None)
-                g[i] += o.w_pen * 2.0 * (depth[mask, None] * dirv).sum(0) / norm_pen
-        # temporal smoothness
-        diff = d[1:] - d[:-1]
-        loss += o.w_temporal * float((diff ** 2).sum())
-        g[1:] += o.w_temporal * 2.0 * diff
-        g[:-1] -= o.w_temporal * 2.0 * diff
-        # anchor prior (stay near stage6)
-        loss += o.w_anchor * float((d ** 2).sum())
-        g += o.w_anchor * 2.0 * d
-
-        m = b1 * m + (1 - b1) * g
-        v = b2 * v + (1 - b2) * (g * g)
-        mh = m / (1 - b1 ** (it + 1))
-        vh = v / (1 - b2 ** (it + 1))
-        d -= o.lr * mh / (np.sqrt(vh) + eps)
-
-        if it % 50 == 0 or it == int(o.iters) - 1:
-            log(f"  iter {it:3d}  loss={loss:.6f}  active={n_active}  "
-                f"|d|max={np.abs(d).max()*100:.2f}cm")
+    differentiable = (o.get("differentiable", False) if hasattr(o, "get") else False)
+    if not cfg.mock and differentiable and s6.get("obj_colors") is not None:
+        # real + differentiable: full joint MANO-articulation + object render-and-
+        # compare optimizer (PyTorch3D, sam3d env). Fingers actually curl to grasp.
+        import os as _os
+        from ..backends.real_perception import run_joint_optimizer, list_frames
+        s0 = ctx.load("stage0_preprocess"); s1 = ctx.load("stage1_detect_track"); s2 = ctx.load("stage2_hand")
+        frame_paths = list_frames(s0.assets["frames_dir"])
+        mdir = s1.assets["masks_dir"]
+        mask_paths = [(_os.path.join(mdir, f"{i:05d}.npy")
+                       if _os.path.exists(_os.path.join(mdir, f"{i:05d}.npy")) else None)
+                      for i in range(T)]
+        hand_verts, poses = run_joint_optimizer(cfg, ctx.stage_dir(NAME), s2, s6,
+                                                frame_paths, mask_paths, s0["intrinsics"])
+        hand_joints = s6["hand_joints"]
+        hand_c = hand_verts[:, contact_idx]
+        d = poses[:, :3, 3] - poses0[:, :3, 3]
+        log("joint optimizer (differentiable MANO+object) applied")
+    elif not cfg.mock:
+        # real: rigid JOINT hand+object grasp optimization (numpy; no articulation).
+        from ..joint_grasp import joint_optimize
+        hand_verts, hand_joints, poses, stats = joint_optimize(
+            hand_verts, s6["hand_joints"], contact_idx, obj_verts, obj_faces,
+            poses0, float(s6.get("obj_radius", np.array(0.04))), o, iters=300)
+        hand_c = hand_verts[:, contact_idx]
+        d = poses[:, :3, 3] - poses0[:, :3, 3]
+        log(f"joint grasp: hand verts within 1cm of object = "
+            f"{stats['env_within_1cm']:.0f}/{Nh} over {stats['grasp_frames']} grasp frames")
+    else:
+        # mock: object-translation-only contact optimization (numpy Adam)
+        hand_joints = s6["hand_joints"]
+        d = _object_only_optim(hand_verts, hand_c, obj_verts, obj_faces, poses0,
+                               o, dist_thresh, cos_thresh)
+        poses = poses0.copy()
+        poses[:, :3, 3] += d
 
     # finalize
-    poses = poses0.copy()
-    poses[:, :3, 3] += d
     owf, onf = all_object_world(obj_verts, obj_faces, poses)
     contact_map = np.zeros((T, len(contact_idx)), bool)
     gaps = np.zeros(T)
@@ -137,12 +160,17 @@ def run(ctx) -> Bundle:
         f"gap median={np.median(gaps)*1000:.1f}mm, "
         f"object moved median={np.median(np.linalg.norm(d,axis=1))*100:.1f}cm")
 
+    arrays = {"hand_verts": hand_verts, "hand_joints": hand_joints,
+              "contact_idx": contact_idx, "obj_verts": obj_verts,
+              "obj_faces": obj_faces, "obj_poses": poses,
+              "obj_radius": s6.get("obj_radius", np.array(0.0)),
+              "object_delta": d, "contact_map": contact_map, "gaps": gaps}
+    if s6.get("obj_colors") is not None:
+        arrays["obj_colors"] = s6["obj_colors"]
+    if s6.get("hand_faces") is not None:
+        arrays["hand_faces"] = s6["hand_faces"]
     return Bundle(
-        arrays={"hand_verts": hand_verts, "hand_joints": s6["hand_joints"],
-                "contact_idx": contact_idx, "obj_verts": obj_verts,
-                "obj_faces": obj_faces, "obj_poses": poses,
-                "obj_radius": s6.get("obj_radius", np.array(0.0)),
-                "object_delta": d, "contact_map": contact_map, "gaps": gaps},
+        arrays=arrays,
         meta={"n_active_contacts": int(contact_map.sum()),
               "gap_median_mm": float(np.median(gaps) * 1000),
               "penetration_depth_sum": pen_depth})

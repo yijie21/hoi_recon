@@ -40,7 +40,7 @@ def build_parser():
                    choices=["hamer", "wilor", "hawor", "depthlift"])
     p.add_argument("--object", default=None, choices=["sam3d", "bundlesdf", "foundationpose"])
     p.add_argument("--depth", default=None,
-                   choices=["moge", "da3", "depth_anything_v2", "metric3d"])
+                   choices=["moge", "da3", "vggt", "depth_anything_v2", "metric3d"])
     p.add_argument("--camera", default=None, choices=["vipe", "droid_slam"])
     return p
 

@@ -60,13 +60,15 @@ def run(ctx) -> Bundle:
     frame_paths = rp.list_frames(s0.assets["frames_dir"])
     boxes, valid = s1["hand_boxes"], s1["hand_valid"].astype(bool)
 
+    T = int(s0.meta["T"])
+    depth_paths = [os.path.join(s0.assets["depth_dir"], f"{i:05d}.npy") for i in range(T)]
     if cfg.backend.hand == "depthlift":      # MANO-free fallback (runs without license)
-        T = int(s0.meta["T"])
-        depth_paths = [os.path.join(s0.assets["depth_dir"], f"{i:05d}.npy") for i in range(T)]
         out = rp.run_hand_depthlift(cfg, frame_paths, boxes, valid, depth_paths, s0["intrinsics"])
         model_free = True
     else:                                    # HaMeR / WiLoR -> MANO (license-gated)
-        out = rp.run_hand(cfg, frame_paths, boxes, valid)
+        # pass metric depth + intrinsics so the hand is anchored into the object's
+        # metric frame (HaMeR's own depth is unreliable — see run_hand).
+        out = rp.run_hand(cfg, frame_paths, boxes, valid, depth_paths, s0["intrinsics"])
         model_free = False
 
     arrays = {k: v for k, v in out.items() if v is not None}

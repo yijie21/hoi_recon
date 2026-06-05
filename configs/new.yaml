@@ -1,0 +1,39 @@
+# Redesigned pipeline: differentiable render-and-compare with an articulated hand.
+# This is the VALIDATED configuration (the result in runs/grab):
+#   python -m hoi_recon.cli --video examples/grab.mp4 --out runs/grab --real \
+#       --hand hamer --object sam3d --depth moge --config configs/new.yaml
+#   hoi_recon-view --run runs/grab
+#
+# VGGT consistent geometry is also wired and validated (`--depth vggt`), but it is
+# up-to-scale; resolving its metric scale inside the optimizer (from the MANO hand)
+# is the remaining step, so `--depth vggt` may need scale tuning. Use `--depth moge`
+# for the validated articulated-grasp result.
+#
+# The heavy components (render-compare, joint optimizer, optionally VGGT) run as
+# subprocesses in the `sam3d-objects` conda env; everything is cached per run dir.
+mock: false
+
+backend:
+  hand: hamer            # HaMeR -> MANO (articulation params threaded for the optimizer)
+  object: sam3d          # SAM-3D-Objects textured mesh
+  depth: moge            # validated path; set to `vggt` for consistent camera+depth (scale WIP)
+  object_pose: render_compare   # differentiable silhouette+photometric object 6D (recovers spin)
+  sam3d_env: sam3d-objects      # conda env that holds VGGT / PyTorch3D / SAM-3D / FoundationPose
+
+optim:
+  differentiable: true   # stage 7: joint MANO-articulation + object render-and-compare
+                         # (fingers curl to grasp; contact + non-penetration + photometric)
+  iters: 200
+  lr: 0.02
+  w_contact: 1.0
+  w_pen: 0.3
+  w_temporal: 0.2
+  w_anchor: 0.02
+
+contact:
+  dist_thresh_m: 0.02
+  normal_thresh_deg: 60.0
+  knn_k: 50
+
+smoothing:
+  window: 5

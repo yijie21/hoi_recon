@@ -53,10 +53,14 @@ def run(ctx) -> Bundle:
     log(f"smoothed (w={w}); hand accel/jitter -> {accel:.5f}; "
         f"gap median={np.median(gaps)*1000:.1f}mm")
 
-    return Bundle(
-        arrays={"hand_verts": hand_verts, "hand_joints": hand_joints,
-                "contact_idx": contact_idx, "obj_verts": s4["obj_verts"],
-                "obj_faces": s4["obj_faces"], "obj_poses": obj_poses,
-                "obj_radius": s4.get("obj_radius", np.array(0.0)), "gaps": gaps},
+    arrays = {"hand_verts": hand_verts, "hand_joints": hand_joints,
+              "contact_idx": contact_idx, "obj_verts": s4["obj_verts"],
+              "obj_faces": s4["obj_faces"], "obj_poses": obj_poses,
+              "obj_radius": s4.get("obj_radius", np.array(0.0)), "gaps": gaps}
+    if s4.get("obj_colors") is not None:
+        arrays["obj_colors"] = s4["obj_colors"]
+    if s4.get("hand_faces") is not None:
+        arrays["hand_faces"] = s4["hand_faces"]
+    return Bundle(arrays=arrays,
         meta={"smoothing_window": w, "jitter_accel": accel,
               "gap_median_mm": float(np.median(gaps) * 1000)})

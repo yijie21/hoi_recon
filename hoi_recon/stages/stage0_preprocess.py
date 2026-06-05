@@ -68,8 +68,9 @@ def run(ctx) -> Bundle:
         depth_dir = geo["depth_dir"]
         H, W = geo["image_size"]
         has_depth = True
-        if geo.get("camera_source") == "da3":
-            log("camera: using Depth-Anything-3 estimated poses (real extrinsics)")
+        if geo.get("camera_source") in ("da3", "vggt"):
+            log(f"camera: using {geo['camera_source'].upper()} estimated poses "
+                f"(real extrinsics, consistent geometry)")
         else:
             log("camera: identity extrinsics (static-camera assumption); "
                 "use --depth da3 for real camera motion", "warn")

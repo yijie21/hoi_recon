@@ -66,6 +66,8 @@ def run_stage0_geometry(cfg, frame_paths, out_dir):
     Returns dict(intrinsics[3,3] px, extrinsics[T,4,4] world->cam, depth_dir,
     depth_paths, image_size(H,W), camera_source).
     """
+    if cfg.backend.depth == "vggt":
+        return _vggt_geometry(cfg, frame_paths, out_dir)
     if cfg.backend.depth in ("da3", "depth_anything_3"):
         return _da3_geometry(cfg, frame_paths, out_dir)
     return _moge_geometry(cfg, frame_paths, out_dir)
@@ -116,6 +118,86 @@ def _da3_geometry(cfg, frame_paths, out_dir):
     extr[:, :3, :4] = ext34
     return {"intrinsics": K, "extrinsics": extr, "depth_dir": depth_dir,
             "depth_paths": depth_paths, "image_size": (H, W), "camera_source": "da3"}
+
+
+def _vggt_geometry(cfg, frame_paths, out_dir):
+    """VGGT consistent geometry: ONE globally-consistent camera trajectory +
+    temporally-consistent depth for the whole clip (vs per-frame monocular MoGe +
+    static-camera assumption). Runs VGGT in the sam3d-objects env (subprocess; its
+    numpy<2/torch pins match), maps the padded-518 depth/intrinsics back to the
+    original frame resolution, and returns real per-frame extrinsics.
+
+    NOTE: VGGT is up-to-scale (monocular). Depth is returned in VGGT units; the
+    metric scale is resolved downstream (the render-and-compare optimizer fits it
+    from the MANO hand). This is the geometry foundation of the redesigned pipeline.
+    """
+    import subprocess
+    import cv2
+    require_repo(cfg.paths.third_party, "vggt",
+                 "git clone https://github.com/facebookresearch/vggt")
+    from ..logging_utils import log
+    geo_npz = os.path.join(out_dir, "vggt", "geo.npz")
+    os.makedirs(os.path.dirname(geo_npz), exist_ok=True)
+    if not os.path.exists(geo_npz):
+        repo = os.path.abspath(os.path.join(cfg.paths.third_party, "vggt"))
+        env_name = (cfg.backend.get("sam3d_env", "sam3d-objects")
+                    if hasattr(cfg.backend, "get") else "sam3d-objects")
+        conda = os.environ.get("CONDA_EXE", "conda")
+        ckpt = os.path.join(cfg.paths.checkpoints, "vggt", "model.pt")
+        frames_dir = os.path.dirname(os.path.abspath(frame_paths[0]))
+        cmd = [conda, "run", "--no-capture-output", "-n", env_name, "python",
+               os.path.join(repo, "vggt_geom.py"), "--frames_dir", frames_dir,
+               "--mode", "pad", "--out", os.path.abspath(geo_npz)]
+        if os.path.exists(ckpt):
+            cmd += ["--ckpt", ckpt]
+        log(f"camera/depth: running VGGT (env '{env_name}') for consistent geometry...")
+        r = subprocess.run(cmd, cwd=repo)
+        if r.returncode != 0 or not os.path.exists(geo_npz):
+            raise BackendNotAvailable(f"VGGT subprocess failed (exit {r.returncode}).")
+    else:
+        log(f"camera/depth: reusing cached VGGT geometry {geo_npz}")
+
+    g = np.load(geo_npz)
+    extr34 = g["extrinsic"]                              # (N,3,4) world->cam (OpenCV)
+    intr = g["intrinsic"]                                # (N,3,3) padded-518
+    dproc = g["depth"].astype(np.float32)               # (N,518,518)
+    x0, y0, nw, nh = [int(v) for v in g["content_rect"]]
+    oh, ow = [int(v) for v in g["orig_hw"]]
+    sel = g["sel_idx"]
+    sx, sy = nw / ow, nh / oh
+
+    # intrinsics: padded-518 -> original frame (median over frames)
+    K = np.eye(3)
+    K[0, 0] = np.median(intr[:, 0, 0]) / sx
+    K[1, 1] = np.median(intr[:, 1, 1]) / sy
+    K[0, 2] = np.median((intr[:, 0, 2] - x0) / sx)
+    K[1, 2] = np.median((intr[:, 1, 2] - y0) / sy)
+
+    T = len(frame_paths)
+    depth_dir = os.path.join(out_dir, "depth")
+    os.makedirs(depth_dir, exist_ok=True)
+    # map each VGGT frame's content depth back to the original resolution
+    depth_paths = [None] * T
+    sel_list = list(sel)
+    for k, fi in enumerate(sel_list):
+        d = dproc[k][y0:y0 + nh, x0:x0 + nw]            # content region (nh,nw)
+        d = cv2.resize(d, (ow, oh), interpolation=cv2.INTER_NEAREST)
+        depth_paths[int(fi)] = _save_depth(depth_dir, int(fi), d)
+    # if subsampled, fill gaps by nearest selected frame
+    if len(sel_list) < T:
+        last = None
+        for i in range(T):
+            if depth_paths[i] is not None:
+                last = depth_paths[i]
+            elif last is not None:
+                depth_paths[i] = last
+
+    extr = np.tile(np.eye(4), (T, 1, 1))
+    for k, fi in enumerate(sel_list):
+        extr[int(fi), :3, :4] = extr34[k]
+    return {"intrinsics": K, "extrinsics": extr, "depth_dir": depth_dir,
+            "depth_paths": depth_paths, "image_size": (oh, ow),
+            "camera_source": "vggt"}
 
 
 def _moge_geometry(cfg, frame_paths, out_dir):
@@ -299,6 +381,281 @@ def run_object_depthlift(cfg, frame_paths, mask_paths, depth_paths, K, max_pts=1
             "radius": np.array(radius), "anchor_frame": a}
 
 
+def run_joint_optimizer(cfg, run_dir, s2, s6, frame_paths, mask_paths, K):
+    """Joint differentiable hand+object render-and-compare (PyTorch3D + MANO, sam3d
+    env). Optimizes MANO articulation + object 6D against silhouette/photometric +
+    contact + non-penetration. Returns (hand_verts[T,778,3], obj_poses[T,4,4]).
+    Requires the threaded MANO params from stage 2."""
+    import subprocess
+    from ..logging_utils import log
+    if s2.get("mano_pose") is None:
+        raise BackendNotAvailable("joint optimizer needs MANO params (re-run stage 2)")
+    repo = require_repo(cfg.paths.third_party, "sam-3d-objects", "")
+    mano_dir = _resolve_mano_dir(cfg.paths.checkpoints)
+    jo_dir = os.path.join(run_dir, "jo"); os.makedirs(jo_dir, exist_ok=True)
+    out_npz = os.path.join(jo_dir, "out.npz")
+    if not os.path.exists(out_npz):
+        hnpz = os.path.join(jo_dir, "hand.npz")
+        np.savez(hnpz, mano_global=s2["mano_global"], mano_pose=s2["mano_pose"],
+                 mano_betas=s2["mano_betas"], verts=s2["verts"], joints=s2["joints"],
+                 contact_idx=s2["contact_idx"], hand_faces=s2["hand_faces"])
+        onpz = os.path.join(jo_dir, "obj.npz")
+        np.savez(onpz, verts=np.asarray(s6["obj_verts"]), faces=s6["obj_faces"],
+                 vertex_colors=s6["obj_colors"], poses=s6["obj_poses"])
+        Kp = os.path.join(jo_dir, "K.npy"); np.save(Kp, np.asarray(K))
+        env_name = (cfg.backend.get("sam3d_env", "sam3d-objects")
+                    if hasattr(cfg.backend, "get") else "sam3d-objects")
+        conda = os.environ.get("CONDA_EXE", "conda")
+        masks_dir = os.path.dirname(os.path.abspath(
+            mask_paths[next(i for i, p in enumerate(mask_paths) if p)]))
+        frames_dir = os.path.dirname(os.path.abspath(frame_paths[0]))
+        cmd = [conda, "run", "--no-capture-output", "-n", env_name, "python",
+               os.path.join(repo, "joint_opt.py"), "--hand", os.path.abspath(hnpz),
+               "--obj", os.path.abspath(onpz), "--frames_dir", frames_dir,
+               "--masks_dir", masks_dir, "--K", os.path.abspath(Kp),
+               "--mano_dir", mano_dir, "--out", os.path.abspath(out_npz), "--iters", "250"]
+        log("joint optimizer: differentiable MANO articulation + object "
+            "(silhouette/photometric/contact)...")
+        r = subprocess.run(cmd, cwd=repo)
+        if r.returncode != 0 or not os.path.exists(out_npz):
+            raise BackendNotAvailable(f"joint optimizer failed (exit {r.returncode}).")
+    else:
+        log(f"joint optimizer: reusing cached {out_npz}")
+    d = np.load(out_npz)
+    return d["hand_verts"], d["obj_poses"]
+
+
+def run_object_pose_render_compare(cfg, run_dir, frame_paths, mask_paths, K,
+                                   verts, faces, colors, init_poses):
+    """Differentiable render-and-compare object 6D refinement (PyTorch3D, sam3d env).
+
+    Renders the textured SAM-3D mesh into each frame and optimizes the per-frame
+    6D pose against silhouette IoU + a PHOTOMETRIC term (rendered texture vs RGB) —
+    the photometric term recovers the spin-about-axis DOF the silhouette tracker
+    can't see. Initialized from `init_poses` (the silhouette tracker). Cached.
+    """
+    import subprocess
+    from ..logging_utils import log
+    repo = require_repo(cfg.paths.third_party, "sam-3d-objects",
+                        "git clone https://github.com/facebookresearch/sam-3d-objects")
+    rc_dir = os.path.join(run_dir, "rc")
+    os.makedirs(rc_dir, exist_ok=True)
+    out_npz = os.path.join(rc_dir, "poses.npz")
+    if not os.path.exists(out_npz):
+        mesh_npz = os.path.join(rc_dir, "mesh.npz")
+        np.savez(mesh_npz, verts=np.asarray(verts), faces=np.asarray(faces),
+                 vertex_colors=np.asarray(colors))
+        init_npz = os.path.join(rc_dir, "init.npz"); np.savez(init_npz, poses=init_poses)
+        K_npz = os.path.join(rc_dir, "K.npy"); np.save(K_npz, np.asarray(K))
+        env_name = (cfg.backend.get("sam3d_env", "sam3d-objects")
+                    if hasattr(cfg.backend, "get") else "sam3d-objects")
+        conda = os.environ.get("CONDA_EXE", "conda")
+        masks_dir = os.path.dirname(os.path.abspath(mask_paths[
+            next(i for i, p in enumerate(mask_paths) if p)]))
+        frames_dir = os.path.dirname(os.path.abspath(frame_paths[0]))
+        cmd = [conda, "run", "--no-capture-output", "-n", env_name, "python",
+               os.path.join(repo, "render_compare.py"), "--mesh", os.path.abspath(mesh_npz),
+               "--frames_dir", frames_dir, "--masks_dir", masks_dir,
+               "--K", os.path.abspath(K_npz), "--init_poses", os.path.abspath(init_npz),
+               "--out", os.path.abspath(out_npz), "--iters", "200"]
+        log(f"object pose: differentiable render-and-compare (silhouette+photometric, "
+            f"env '{env_name}')...")
+        r = subprocess.run(cmd, cwd=repo)
+        if r.returncode != 0 or not os.path.exists(out_npz):
+            raise BackendNotAvailable(f"render-compare failed (exit {r.returncode}).")
+    else:
+        log(f"object pose: reusing cached render-compare poses {out_npz}")
+    return np.load(out_npz)["poses"]
+
+
+def run_object_pose_foundationpose(cfg, run_dir, frame_paths, mask_paths,
+                                   depth_paths, K, verts, faces):
+    """Per-frame object 6D pose via FoundationPose (model-based RGB-D tracker).
+
+    Runs FoundationPose in the sam3d-objects env (reused — it has torch/pytorch3d/
+    nvdiffrast/kaolin) as a subprocess: register on the largest-mask frame with the
+    SAM-3D mesh + MoGe depth + SAM2 mask, then track bidirectionally. Returns
+    poses[T,4,4] (object->camera). Cached per run. NOTE: FoundationPose expects
+    reliable sensor depth; on monocular MoGe depth its translation can drift.
+    """
+    import subprocess
+    import trimesh
+    from ..logging_utils import log
+    T = len(frame_paths)
+    fp_dir = os.path.join(run_dir, "fp")
+    os.makedirs(fp_dir, exist_ok=True)
+    out_npz = os.path.join(fp_dir, "poses.npz")
+    if not os.path.exists(out_npz):
+        mesh_path = os.path.join(fp_dir, "mesh.obj")
+        trimesh.Trimesh(np.asarray(verts), np.asarray(faces), process=False).export(mesh_path)
+        K_path = os.path.join(fp_dir, "K.npy"); np.save(K_path, np.asarray(K))
+        areas = [int(np.load(p).sum()) if p else 0 for p in mask_paths]
+        rf = int(np.argmax(areas))
+        if areas[rf] < 50:
+            raise BackendNotAvailable("no usable mask to register FoundationPose")
+        repo = require_repo(cfg.paths.third_party, "FoundationPose",
+                            "git clone https://github.com/NVlabs/FoundationPose")
+        env_name = (cfg.backend.get("sam3d_env", "sam3d-objects")
+                    if hasattr(cfg.backend, "get") else "sam3d-objects")
+        conda = os.environ.get("CONDA_EXE", "conda")
+        depth_dir = os.path.dirname(os.path.abspath(depth_paths[0]))
+        frames_dir = os.path.dirname(os.path.abspath(frame_paths[0]))
+        cmd = [conda, "run", "--no-capture-output", "-n", env_name, "python",
+               os.path.join(repo, "fp_track.py"),
+               "--mesh", os.path.abspath(mesh_path),
+               "--frames_dir", frames_dir, "--depth_dir", depth_dir,
+               "--K", os.path.abspath(K_path),
+               "--mask", os.path.abspath(mask_paths[rf]),
+               "--register_frame", str(rf), "--out", os.path.abspath(out_npz)]
+        log(f"object pose: running FoundationPose (register on frame {rf}, env "
+            f"'{env_name}'); first run loads the refiner/scorer nets...")
+        r = subprocess.run(cmd, cwd=repo)
+        if r.returncode != 0 or not os.path.exists(out_npz):
+            raise BackendNotAvailable(
+                f"FoundationPose subprocess failed (exit {r.returncode}).")
+    else:
+        log(f"object pose: reusing cached FoundationPose poses {out_npz}")
+    return np.load(out_npz)["poses"]
+
+
+def _kabsch(A, B):
+    """Least-squares rotation R (3x3) mapping centered point set A onto B (rows are
+    points): B-mean(B) ~= (A-mean(A)) @ R.T."""
+    Ac = A - A.mean(0)
+    Bc = B - B.mean(0)
+    U, S, Vt = np.linalg.svd(Ac.T @ Bc)
+    d = np.sign(np.linalg.det(Vt.T @ U.T))
+    return Vt.T @ np.diag([1.0, 1.0, d]) @ U.T
+
+
+def couple_object_to_hand(obj_poses, hand_joints, hand_valid, obj_radius,
+                          grasp_pad=0.05):
+    """Make a grasped object inherit the hand's rigid 6D motion (so it ROTATES with
+    the wrist, not just translates).
+
+    A held object is rigid w.r.t. the hand, so once grasped its pose is the hand's
+    palm rigid transform — relative to the grasp-onset frame — applied to its rest
+    pose. The depth-lift track only gives translation (R=I); this adds the missing
+    rotation by Procrustes-fitting the rigid palm (wrist + finger MCP joints) frame
+    to frame. Frames before grasp onset stay static at the rest pose. Detection
+    gaps after onset hold the previous pose. Returns poses[T,4,4].
+    """
+    T = obj_poses.shape[0]
+    PALM = [0, 5, 9, 13, 17]                  # wrist + finger MCPs = rigid palm
+    centroids = obj_poses[:, :3, 3]
+    palm = hand_joints[:, PALM, :]
+    palm_c = palm.mean(1)
+    valid = (hand_valid.any(1) if getattr(hand_valid, "ndim", 1) == 2
+             else np.asarray(hand_valid, bool))
+    r = float(obj_radius) if obj_radius and float(obj_radius) > 0 else 0.05
+    grasp = valid & (np.linalg.norm(palm_c - centroids, axis=1) < 2.0 * r + grasp_pad)
+    if not grasp.any():
+        return obj_poses                      # never detected a grasp -> unchanged
+    t0 = int(np.argmax(grasp))
+    A0 = palm[t0]
+    poses = np.tile(np.eye(4), (T, 1, 1))
+    Rprev = np.eye(3)
+    for t in range(T):
+        if t >= t0 and grasp[t]:
+            Rprev = _kabsch(A0, palm[t])       # hand-driven rotation (vs grasp onset)
+            R = Rprev
+        elif t >= t0:
+            R = Rprev                          # detection gap: hold last rotation
+        else:
+            R = np.eye(3)                      # pre-grasp: object at rest orientation
+        poses[t, :3, :3] = R
+        # KEEP the image-grounded depth-lift translation (it reprojects onto the
+        # object to within a few px); only inherit ROTATION from the hand. Rotating
+        # about the (centered) object's centroid leaves the centroid where the
+        # object actually is, so the object both follows the wrist AND stays
+        # registered to the video. (Earlier this used a palm-derived translation,
+        # which made the object drift off the real object by 50-230 px.)
+        poses[t, :3, 3] = centroids[t]
+    return poses
+
+
+def run_object_sam3d(cfg, run_dir, frame_paths, mask_paths, depth_paths, K):
+    """SAM-3D-Objects textured mesh for the interacting object, placed on the
+    metric depth-lift 6D track.
+
+    SAM-3D Objects (a separate torch-2.5.1 conda env) reconstructs a full textured
+    mesh from ONE RGB frame + its object mask. We run it as a subprocess (its deps
+    conflict with this env's torch) and load the resulting verts/faces/vertex
+    colors. That mesh is canonical + normalized, so we:
+      (a) orient it from SAM-3D's y-up canonical frame into the camera frame,
+      (b) scale it to the object's METRIC size measured from depth at the anchor
+          frame (projected mask bbox -> metres), and
+      (c) reuse the depth-lift centroid trajectory for the 6D poses — that is what
+          keeps the object co-located with the hand.
+    Returns dict(verts, faces, vertex_colors, poses, radius, anchor_frame).
+    """
+    import subprocess
+    # depth-lift gives the metric 6D translation track that aligns with the hand.
+    track = run_object_depthlift(cfg, frame_paths, mask_paths, depth_paths, K)
+
+    # anchor frame = largest visible object mask (best single view for image->3D)
+    areas = [int(np.load(mp).sum()) if mp else 0 for mp in mask_paths]
+    bi = int(np.argmax(areas))
+    if areas[bi] < 50:
+        raise BackendNotAvailable("no usable object mask for SAM-3D (check stage1)")
+
+    # metric extent of the visible object at the anchor frame (projected bbox -> m)
+    m = np.load(mask_paths[bi]).astype(bool)
+    d = np.load(depth_paths[bi]).astype(np.float32)
+    ys, xs = np.where(m)
+    zsel = d[ys, xs]; zsel = zsel[zsel > 0]
+    z_med = float(np.median(zsel)) if zsel.size else 0.3
+    h_px = float(ys.max() - ys.min() + 1)
+    w_px = float(xs.max() - xs.min() + 1)
+    metric_extent = float(max(h_px * z_med / K[1, 1], w_px * z_med / K[0, 0]))
+
+    repo = require_repo(cfg.paths.third_party, "sam-3d-objects",
+                        "git clone https://github.com/facebookresearch/sam-3d-objects")
+    out_npz = os.path.join(run_dir, "sam3d", "object.npz")
+    os.makedirs(os.path.dirname(out_npz), exist_ok=True)
+    from ..logging_utils import log
+    # SAM-3D is deterministic per (frame, seed) and slow (~13GB weights); cache it
+    # independently of stage --force (which recomputes only the cheap stage logic).
+    # Delete this run's sam3d/object.npz to regenerate the mesh.
+    if os.path.exists(out_npz):
+        log(f"object: reusing cached SAM-3D mesh {out_npz} (delete it to regenerate)")
+    else:
+        env_name = (cfg.backend.get("sam3d_env", "sam3d-objects")
+                    if hasattr(cfg.backend, "get") else "sam3d-objects")
+        conda = os.environ.get("CONDA_EXE", "conda")
+        cmd = [conda, "run", "--no-capture-output", "-n", env_name, "python",
+               os.path.join(repo, "sam3d_infer.py"), "--no-texture",
+               "--image", os.path.abspath(frame_paths[bi]),
+               "--mask", os.path.abspath(mask_paths[bi]),
+               "--out", os.path.abspath(out_npz)]
+        log(f"object: running SAM-3D-Objects on frame {bi} in env '{env_name}' "
+            f"(this loads ~13GB of weights; first run is slow)...")
+        r = subprocess.run(cmd, cwd=repo)
+        if r.returncode != 0 or not os.path.exists(out_npz):
+            raise BackendNotAvailable(
+                f"SAM-3D subprocess failed (exit {r.returncode}). Build its env first: "
+                "see third_party/sam-3d-objects/doc/setup.md (conda env 'sam3d-objects').")
+
+    data = np.load(out_npz)
+    verts = data["verts"].astype(np.float64)
+    faces = data["faces"].astype(np.int64)
+    colors = data["vertex_colors"].astype(np.uint8)
+
+    # orient SAM-3D y-up canonical mesh into the camera frame (OpenCV: y-down,
+    # z-forward), center at origin, and scale to the metric extent from depth.
+    verts = verts @ np.diag([1.0, -1.0, -1.0]).T
+    verts -= verts.mean(0)
+    cur_extent = float((verts.max(0) - verts.min(0)).max())
+    verts *= metric_extent / max(cur_extent, 1e-9)
+    radius = float(np.linalg.norm(verts - verts.mean(0), axis=1).mean())
+
+    log(f"object: SAM-3D mesh {verts.shape[0]} verts, scaled to "
+        f"{metric_extent*100:.1f}cm extent; using depth-lift 6D track")
+    return {"verts": verts, "faces": faces, "vertex_colors": colors,
+            "poses": track["poses"], "radius": np.array(radius),
+            "anchor_frame": bi}
+
+
 # ==========================================================================
 # Stage 2 — MANO-free hand fallback: lift the hand region to a corresponded
 # point cloud via MoGe depth. Lets the full pipeline run without MANO/license.
@@ -370,6 +727,77 @@ def _cam_crop_to_full(cam_bbox, box_center, box_size, img_size, focal):
     return np.array([tx, ty, tz], np.float64)
 
 
+def _patch_numpy_for_chumpy():
+    """Restore the numpy scalar aliases (np.bool/int/float/...) removed in
+    numpy>=1.24 so chumpy 0.70 imports under this env's numpy 2.x.
+
+    chumpy is pulled in implicitly when smplx unpickles the official MANO .pkl
+    (its arrays are chumpy objects); chumpy's __init__ does `from numpy import
+    bool, int, float, ...`, which reads these as numpy module attributes. Setting
+    them back *before* chumpy is first imported makes that import succeed without
+    downgrading numpy (which MoGe/SAM2 need at >=2). Idempotent; no-op once set.
+    """
+    import numpy as np
+    for name, typ in {"bool": bool, "int": int, "float": float, "complex": complex,
+                      "object": object, "str": str, "unicode": str, "long": int}.items():
+        if name not in np.__dict__:        # dict check avoids numpy's __getattr__ FutureWarning
+            np.__dict__[name] = typ
+
+
+def _resolve_mano_dir(ckpt_root):
+    """Return the directory that actually contains MANO_RIGHT.pkl.
+
+    Supports both the flat layout (checkpoints/mano/MANO_RIGHT.pkl) and the
+    official MANO_v1_2 archive layout, which extracts to
+    checkpoints/mano/mano_v1_2/models/MANO_RIGHT.pkl. The returned dir is what
+    HaMeR/smplx is pointed at via MANO.MODEL_PATH, so it must hold the .pkl
+    directly. Returns None if no MANO model is found.
+    """
+    candidates = [
+        os.path.join(ckpt_root, "mano"),
+        os.path.join(ckpt_root, "mano", "models"),
+        os.path.join(ckpt_root, "mano", "mano_v1_2", "models"),
+    ]
+    for d in candidates:
+        if os.path.exists(os.path.join(d, "MANO_RIGHT.pkl")):
+            return d
+    return None
+
+
+def _hand_metric_anchor(depth_path, box, K):
+    """Metric 3D anchor for the hand from MoGe depth + real intrinsics.
+
+    HaMeR returns a correctly-shaped, metric MANO hand but places it with a
+    *fabricated* focal length, so its absolute depth is wrong by metres and varies
+    wildly frame to frame (the hand 'flies away' from the object, which lives in
+    the MoGe metric frame). We discard HaMeR's depth and instead backproject the
+    hand-box centre at the box's foreground depth using the SAME metric map +
+    intrinsics the object is reconstructed from — so hand and object share one
+    metric camera frame. Returns the metric hand-centroid position (3,) or None.
+    """
+    d = np.load(depth_path).astype(np.float32)
+    H, W = d.shape
+    x0, y0, x1, y1 = box
+    x0, x1 = np.clip([x0, x1], 0, W - 1)
+    y0, y1 = np.clip([y0, y1], 0, H - 1)
+    cx_px, cy_px = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    # central sub-window of the box -> stable hand depth (avoids box-edge background)
+    hw, hh = 0.25 * (x1 - x0), 0.25 * (y1 - y0)
+    sub = d[int(cy_px - hh):int(cy_px + hh) + 1, int(cx_px - hw):int(cx_px + hw) + 1]
+    pos = sub[sub > 0]
+    if pos.size < 4:
+        crop = d[int(y0):int(y1) + 1, int(x0):int(x1) + 1]
+        pos = crop[crop > 0]
+        if pos.size < 4:
+            return None
+    z = float(np.median(pos))
+    if not np.isfinite(z) or z <= 0:
+        return None
+    X = (cx_px - K[0, 2]) / K[0, 0] * z
+    Y = (cy_px - K[1, 2]) / K[1, 1] * z
+    return np.array([X, Y, z], np.float64)
+
+
 def _mano_fingertip_idx(verts, tips=(744, 320, 443, 554, 672), rad=0.025):
     """Contact candidate vertices = MANO surface within `rad` of the 5 fingertips."""
     tip_pts = verts[list(tips)]
@@ -378,23 +806,32 @@ def _mano_fingertip_idx(verts, tips=(744, 320, 443, 554, 672), rad=0.025):
     return idx if len(idx) >= 20 else np.argsort(d)[:120]
 
 
-def run_hand(cfg, frame_paths, hand_boxes, hand_valid):
+def run_hand(cfg, frame_paths, hand_boxes, hand_valid, depth_paths=None, K=None):
     """HaMeR per-frame MANO reconstruction using stage-1 hand boxes (no detectron2).
 
     Returns dict(betas, orient, pose, transl, joints[T,21,3], verts[T,778,3],
     contact_idx, hand_faces). Hard-gated on the MANO model (license).
+
+    When depth_paths + K are supplied (real run with MoGe metric depth), the hand
+    is placed by anchoring its centroid to the metric depth at the hand box (see
+    _hand_metric_anchor), so it shares the object's metric camera frame. Without
+    them it falls back to HaMeR's weak-perspective translation (depth unreliable).
     """
     import sys
     import torch
     import cv2
 
+    _patch_numpy_for_chumpy()   # let chumpy (MANO .pkl unpickling) import on numpy 2.x
+
     # MANO (the license-gated blocker) is checked first — it's the action you own.
-    mano_dir = os.path.join(cfg.paths.checkpoints, "mano")
-    if not os.path.exists(os.path.join(mano_dir, "MANO_RIGHT.pkl")):
+    mano_dir = _resolve_mano_dir(cfg.paths.checkpoints)
+    if mano_dir is None:
+        flat = os.path.join(cfg.paths.checkpoints, "mano")
         raise BackendNotAvailable(
             "MANO model required for HaMeR but missing. It is LICENSE-GATED and "
             "cannot be auto-downloaded: register at https://mano.is.tue.mpg.de, "
-            f"accept the license, then place MANO_RIGHT.pkl at {mano_dir}/MANO_RIGHT.pkl\n"
+            f"accept the license, then place MANO_RIGHT.pkl at {flat}/MANO_RIGHT.pkl "
+            f"(or extract MANO_v1_2 to {flat}/mano_v1_2/models/).\n"
             "  (MANO-free alternative that runs now: --hand depthlift)")
     ckpt = require_ckpt(cfg.paths.checkpoints,
                         "hamer/hamer_ckpts/checkpoints/hamer.ckpt",
@@ -419,6 +856,12 @@ def run_hand(cfg, frame_paths, hand_boxes, hand_valid):
     model_cfg.defrost()
     if model_cfg.MODEL.BACKBONE.TYPE == "vit" and "BBOX_SHAPE" not in model_cfg.MODEL:
         model_cfg.MODEL.BBOX_SHAPE = [192, 256]
+    # Drop the training-time backbone init weights ('hamer_training_data/
+    # vitpose_backbone.pth'): they aren't shipped with the demo weights and the
+    # full hamer.ckpt already contains the trained backbone (loaded below via
+    # load_from_checkpoint). HaMeR's own load_hamer() pops this for the same reason.
+    if "PRETRAINED_WEIGHTS" in model_cfg.MODEL.BACKBONE:
+        model_cfg.MODEL.BACKBONE.pop("PRETRAINED_WEIGHTS")
     model_cfg.MANO.MODEL_PATH = mano_dir
     for mean in (os.path.join(cfg.paths.checkpoints, "hamer", "hamer_ckpts", "mano_mean_params.npz"),
                  os.path.join(cfg.paths.checkpoints, "hamer", "data", "mano_mean_params.npz"),
@@ -435,6 +878,13 @@ def run_hand(cfg, frame_paths, hand_boxes, hand_valid):
     T = len(frame_paths)
     verts_all = np.zeros((T, 778, 3))
     joints_all = np.zeros((T, 21, 3))
+    # MANO articulation params (rotmats) + 2D keypoints — kept so the render-and-
+    # compare optimizer (Phase 2) can re-articulate the hand and fit 2D keypoints.
+    glob_all = np.tile(np.eye(3), (T, 1, 1))                    # global_orient (T,3,3)
+    pose_all = np.tile(np.eye(3), (T, 15, 1, 1))               # hand_pose (T,15,3,3)
+    betas_all = np.zeros((T, 10))
+    kp2d_all = np.zeros((T, 21, 2))                            # full-image px
+    side_all = np.zeros(T, np.int64)                          # 1=right,0=left
     ref = None
     for i, p in enumerate(frame_paths):
         img = cv2.imread(p)[:, :, ::-1].copy()                  # BGR->RGB
@@ -442,6 +892,8 @@ def run_hand(cfg, frame_paths, hand_boxes, hand_valid):
         if slot is None:
             if i > 0:
                 verts_all[i], joints_all[i] = verts_all[i - 1], joints_all[i - 1]
+                glob_all[i], pose_all[i], betas_all[i] = glob_all[i-1], pose_all[i-1], betas_all[i-1]
+                kp2d_all[i], side_all[i] = kp2d_all[i-1], side_all[i-1]
             continue
         box = hand_boxes[i, slot][None, :]
         right = np.array([1 if slot == 1 else 0])
@@ -455,18 +907,50 @@ def run_hand(cfg, frame_paths, hand_boxes, hand_valid):
         s = 2.0 * float(right[0]) - 1.0                         # mirror left hands
         v[:, 0] *= s
         j[:, 0] *= s
-        pc = out["pred_cam"][0].cpu().numpy()
+
+        anchor = None
+        if depth_paths is not None and K is not None:
+            anchor = _hand_metric_anchor(depth_paths[i], hand_boxes[i, slot], K)
+        if anchor is not None:
+            # keep HaMeR's metric shape + articulation; place its centroid at the
+            # metric depth point (same frame as the object) instead of HaMeR's
+            # fabricated-focal depth.
+            c = v.mean(0)
+            verts_all[i], joints_all[i] = v - c + anchor, j - c + anchor
+        else:
+            pc = out["pred_cam"][0].cpu().numpy()
+            bc = batch["box_center"][0].cpu().numpy()
+            bs = float(batch["box_size"][0].cpu().numpy())
+            isz = batch["img_size"][0].cpu().numpy()
+            sf = focal / img_sz_model * float(max(isz))
+            t = _cam_crop_to_full(pc, bc, bs, isz, sf)
+            verts_all[i], joints_all[i] = v + t, j + t
+
+        # MANO articulation params + 2D keypoints (full-image px) for the optimizer
+        mp = out["pred_mano_params"]
+        glob_all[i] = mp["global_orient"][0].reshape(3, 3).cpu().numpy()
+        pose_all[i] = mp["hand_pose"][0].reshape(15, 3, 3).cpu().numpy()
+        betas_all[i] = mp["betas"][0].reshape(-1)[:10].cpu().numpy()
+        side_all[i] = int(right[0])
         bc = batch["box_center"][0].cpu().numpy()
         bs = float(batch["box_size"][0].cpu().numpy())
-        isz = batch["img_size"][0].cpu().numpy()
-        sf = focal / img_sz_model * float(max(isz))
-        t = _cam_crop_to_full(pc, bc, bs, isz, sf)
-        verts_all[i], joints_all[i] = v + t, j + t
+        kp = out["pred_keypoints_2d"][0].cpu().numpy()          # crop-normalized
+        kp2d_all[i] = bc[None, :] + kp * bs                     # -> full-image px
         ref = i if ref is None else ref
 
     if ref is None:
         raise BackendNotAvailable("no hands detected in any frame (stage1)")
+    # Back-fill leading frames with no detection (hand not yet tracked during the
+    # approach) using the first valid pose, so the hand rests at its entry point
+    # instead of collapsing to the camera origin (0,0,0).
+    for i in range(ref):
+        verts_all[i], joints_all[i] = verts_all[ref], joints_all[ref]
+        glob_all[i], pose_all[i], betas_all[i] = glob_all[ref], pose_all[ref], betas_all[ref]
+        kp2d_all[i], side_all[i] = kp2d_all[ref], side_all[ref]
     contact_idx = _mano_fingertip_idx(verts_all[ref])
     return {"betas": np.zeros(10), "orient": np.zeros((T, 3)), "pose": np.zeros((T, 45)),
             "transl": joints_all[:, 0, :], "joints": joints_all, "verts": verts_all,
-            "contact_idx": contact_idx, "hand_faces": faces}
+            "contact_idx": contact_idx, "hand_faces": faces,
+            # MANO params (rotmats) + 2D keypoints for the render-and-compare optimizer
+            "mano_global": glob_all, "mano_pose": pose_all, "mano_betas": betas_all,
+            "kp2d": kp2d_all, "hand_side": side_all}

@@ -73,8 +73,16 @@ def run(ctx) -> Bundle:
     obj_verts, obj_faces = s5["obj_verts"], s5["obj_faces"].astype(int)
     radius = s5.get("obj_radius", np.array(0.0))
 
-    # 1) rectify object placement
-    delta = _rectify(s5, radius)
+    # 1) rectify object placement.
+    # Real mode: the object is already image-grounded (its depth-lift centroid
+    # reprojects onto the real object to a few px), so do NOT snap it toward the
+    # hand — that would drag it off the video. The grasp is instead closed by
+    # moving the hand onto the object in stage 7. Mock mode injects a deliberate
+    # object error that this heuristic snap is meant to remove.
+    if cfg.mock:
+        delta = _rectify(s5, radius)
+    else:
+        delta = np.zeros((s5["obj_poses"].shape[0], 3))
     poses = s5["obj_poses"].copy()
     poses[:, :3, 3] += delta
 
@@ -109,13 +117,18 @@ def run(ctx) -> Bundle:
         f"contact correspondences active={n_active} over {T} frames "
         f"(gate: <{dist_thresh*100:.0f}cm, <{cfg.contact.normal_thresh_deg:.0f}deg)")
 
+    arrays = {"hand_verts": s5["hand_verts"], "hand_joints": s5["hand_joints"],
+              "contact_idx": contact_idx, "obj_verts": obj_verts,
+              "obj_faces": obj_faces, "obj_poses": poses, "obj_radius": radius,
+              "corr_obj_idx": corr_obj_idx, "corr_dist": corr_dist,
+              "corr_valid": corr_valid, "contact_map": contact_map,
+              "rectify_delta": delta}
+    if s5.get("obj_colors") is not None:
+        arrays["obj_colors"] = s5["obj_colors"]
+    if s5.get("hand_faces") is not None:
+        arrays["hand_faces"] = s5["hand_faces"]
     return Bundle(
-        arrays={"hand_verts": s5["hand_verts"], "hand_joints": s5["hand_joints"],
-                "contact_idx": contact_idx, "obj_verts": obj_verts,
-                "obj_faces": obj_faces, "obj_poses": poses, "obj_radius": radius,
-                "corr_obj_idx": corr_obj_idx, "corr_dist": corr_dist,
-                "corr_valid": corr_valid, "contact_map": contact_map,
-                "rectify_delta": delta},
+        arrays=arrays,
         meta={"n_active_contacts": n_active,
               "dist_thresh_m": dist_thresh,
               "normal_thresh_deg": float(cfg.contact.normal_thresh_deg)})

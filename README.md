@@ -110,9 +110,9 @@ bash scripts/download_checkpoints.sh   # fetch MoGe / SAM2 / WiLoR / HaMeR weigh
 #   then place MANO_RIGHT.pkl (license) — see that script's final notes
 
 # 1. run the composed pipeline on a clip
-python -m hoi_recon.cli --video path/to/clip.mp4 --out runs/clip01 --real \
+python -m hoi_recon.cli --video /mnt/yijie/code/hoi_recon/examples/grab.mp4 --out runs/grab --real \
     --hand hamer --object sam3d --depth moge
-hoi-recon-view --run runs/clip01           # view the 4D result
+hoi-recon-view --run runs/grab           # view the 4D result
 ```
 
 ### What each real backend uses (verified on an RTX 5080 / CUDA 12.8)

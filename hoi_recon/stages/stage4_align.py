@@ -48,10 +48,15 @@ def run(ctx) -> Bundle:
     meta = {"world_scale": world_scale,
             "gap_min_mm": float(gaps.min() * 1000),
             "gap_median_mm": float(np.median(gaps) * 1000)}
-    return Bundle(
-        arrays={"hand_verts": hand_verts, "hand_joints": hand_joints,
-                "contact_idx": contact_idx, "obj_verts": obj_verts,
-                "obj_faces": obj_faces, "obj_poses": obj_poses,
-                "obj_radius": s3.get("radius", np.array(0.0)),
-                "gaps": gaps},
-        meta=meta)
+    arrays = {"hand_verts": hand_verts, "hand_joints": hand_joints,
+              "contact_idx": contact_idx, "obj_verts": obj_verts,
+              "obj_faces": obj_faces, "obj_poses": obj_poses,
+              "obj_radius": s3.get("radius", np.array(0.0)),
+              "gaps": gaps}
+    obj_colors = s3.get("colors")              # present only for textured backends (sam3d)
+    if obj_colors is not None:
+        arrays["obj_colors"] = obj_colors
+    hand_faces = s2.get("hand_faces")          # MANO mesh faces (real HaMeR hand)
+    if hand_faces is not None:
+        arrays["hand_faces"] = hand_faces
+    return Bundle(arrays=arrays, meta=meta)

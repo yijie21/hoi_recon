@@ -11,6 +11,11 @@ from typing import Any, Dict
 
 import yaml
 
+# Repo root = parent of the `hoi_recon` package dir. Used to anchor checkpoint /
+# third-party paths so the pipeline finds weights no matter what CWD it is
+# launched from (e.g. `python -m hoi_recon.cli` run from outside the repo).
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 _DEFAULTS: Dict[str, Any] = {
     "mock": True,            # synthetic scene + injected per-stage error (no weights)
     "seed": 0,
@@ -39,8 +44,8 @@ _DEFAULTS: Dict[str, Any] = {
         "window": 5,
     },
     "paths": {
-        "third_party": "third_party",
-        "checkpoints": "checkpoints",
+        "third_party": os.path.join(_REPO_ROOT, "third_party"),
+        "checkpoints": os.path.join(_REPO_ROOT, "checkpoints"),
     },
     "force": False,          # recompute stages even if cached
 }

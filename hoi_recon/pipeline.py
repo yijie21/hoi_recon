@@ -82,4 +82,16 @@ def run_pipeline(cfg: Config, run_dir: str, stages: str = "all") -> RunContext:
         out: Bundle = mod.run(ctx)
         out.save(ctx.stage_dir(name))
         log(f"saved {name}: {out}", "ok")
+
+    # Byproduct: reprojection-overlay validation videos (real mode, once the final
+    # 4D HOI exists). Non-fatal — a rendering hiccup never fails the pipeline.
+    if not cfg.mock and (7 in sel or 8 in sel) and ctx.has("stage7_contact_optim"):
+        try:
+            from .viz.reproject import generate_overlays
+            paths = generate_overlays(run_dir)
+            if paths:
+                log("reprojection overlays: " +
+                    ", ".join(os.path.basename(p) for p in paths), "ok")
+        except Exception as e:
+            log(f"reprojection overlay skipped: {e}", "warn")
     return ctx
