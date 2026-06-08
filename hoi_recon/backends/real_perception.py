@@ -533,13 +533,18 @@ def run_object_pose_foundationpose(cfg, run_dir, frame_paths, mask_paths,
         conda = os.environ.get("CONDA_EXE", "conda")
         depth_dir = os.path.dirname(os.path.abspath(depth_paths[0]))
         frames_dir = os.path.dirname(os.path.abspath(frame_paths[0]))
+        masks_dir = os.path.dirname(os.path.abspath(mask_paths[rf]))
         cmd = [conda, "run", "--no-capture-output", "-n", env_name, "python",
                os.path.join(repo, "fp_track.py"),
                "--mesh", os.path.abspath(mesh_path),
                "--frames_dir", frames_dir, "--depth_dir", depth_dir,
                "--K", os.path.abspath(K_path),
                "--mask", os.path.abspath(mask_paths[rf]),
-               "--register_frame", str(rf), "--out", os.path.abspath(out_npz)]
+               "--register_frame", str(rf), "--out", os.path.abspath(out_npz),
+               # give FP its best shot on monocular MoGe depth: clamp the z-smear
+               # inside the object mask to a thin band around the near surface
+               # (sensor-depth is what FP's stability assumes; this approximates it).
+               "--masks_dir", masks_dir, "--clean_depth", "120"]
         log(f"object pose: running FoundationPose (register on frame {rf}, env "
             f"'{env_name}'); first run loads the refiner/scorer nets...")
         r = subprocess.run(cmd, cwd=repo)

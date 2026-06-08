@@ -42,7 +42,12 @@ def main():
                          "render spilling onto them is not penalized")
     ap.add_argument("--w_photo", type=float, default=1.0)
     ap.add_argument("--w_sil", type=float, default=2.0)
-    ap.add_argument("--w_temp", type=float, default=5.0)
+    ap.add_argument("--w_temp", type=float, default=5.0,
+                    help="velocity (1st-difference) smoothness on pose")
+    ap.add_argument("--w_accel", type=float, default=20.0,
+                    help="acceleration (2nd-difference) smoothness — kills the per-frame "
+                         "shake that a velocity term alone leaves; weighted higher than "
+                         "w_temp because jitter is a 2nd-order phenomenon")
     ap.add_argument("--w_prior", type=float, default=50.0,
                     help="translation prior to the (image-grounded) init poses")
     ap.add_argument("--chunk", type=int, default=24)
@@ -165,6 +170,8 @@ def main():
         # term alone would let the object drift toward the camera)
         tl = (a.w_temp * ((transl[1:] - transl[:-1]) ** 2).mean()
               + a.w_temp * ((rot6d[1:] - rot6d[:-1]) ** 2).mean()
+              + a.w_accel * ((transl[2:] - 2 * transl[1:-1] + transl[:-2]) ** 2).mean()
+              + a.w_accel * ((rot6d[2:] - 2 * rot6d[1:-1] + rot6d[:-2]) ** 2).mean()
               + a.w_prior * ((transl - transl0) ** 2).mean())
         tl.backward()
         opt.step()

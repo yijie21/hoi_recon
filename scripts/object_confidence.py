@@ -178,6 +178,7 @@ def main():
 
     NANROW = {"iou": np.nan, "dc_iou": np.nan, "mask_cov": np.nan, "occl": np.nan,
               "centroid_err_px": np.nan, "mask_area_px": 0,
+              "obj_reproj_cx": np.nan, "obj_reproj_cy": np.nan,
               "hand_iou": np.nan, "hand_prec": np.nan, "hand_cov": np.nan,
               "hand_centroid_err_px": np.nan}
     rows = []
@@ -202,9 +203,12 @@ def main():
             hsil = rasterize(hv[t], hfc, K, H, W, sc)
             occl = float(np.logical_and(hsil, sil).sum()) / max(float(sil.sum()), 1)
         ce = np.nan
+        rcx = rcy = np.nan
+        if sil.any():
+            cs = np.array(np.nonzero(sil)).mean(1)[::-1]   # render centroid (x,y) at sc
+            rcx, rcy = float(cs[0] / sc), float(cs[1] / sc)  # full-res px (on-screen shake)
         if m.any() and sil.any():
             cm = np.array(np.nonzero(m)).mean(1)[::-1]    # (x,y)
-            cs = np.array(np.nonzero(sil)).mean(1)[::-1]
             ce = float(np.linalg.norm(cm - cs) / sc)       # full-res px
         # don't-care IoU: render pixels on the SAM2 HAND mask are excluded from
         # the union — the fair pose score under occlusion (plain IoU is bounded
@@ -235,8 +239,31 @@ def main():
                 h_ce = float(np.linalg.norm(chm - chs) / sc)
         rows.append({"frame": t, "iou": iou, "dc_iou": dc_iou, "mask_cov": mask_cov, "occl": occl,
                      "centroid_err_px": ce, "mask_area_px": int(m.sum() / (sc * sc)),
+                     "obj_reproj_cx": rcx, "obj_reproj_cy": rcy,
                      "hand_iou": h_iou, "hand_prec": h_prec, "hand_cov": h_cov,
                      "hand_centroid_err_px": h_ce})
+
+    # ---- jitter (temporal-consistency) metrics ----
+    # On-screen shake = 2nd difference of the reprojected object centroid (px/frame^2):
+    # a steady or smoothly-moving object has ~0 acceleration; per-frame pose jitter
+    # shows up as high-frequency reversals that velocity penalties don't catch.
+    rc = np.stack([[r["obj_reproj_cx"], r["obj_reproj_cy"]] for r in rows])  # (T,2) px
+    accel_px = np.full(T, np.nan)
+    fin = np.isfinite(rc).all(1)
+    if fin.sum() >= 3:
+        rcf = rc.copy()
+        for c in range(2):                       # linear-interp gaps so accel is defined
+            rcf[:, c] = np.interp(np.arange(T), np.where(fin)[0], rc[fin, c])
+        a2 = rcf[2:] - 2 * rcf[1:-1] + rcf[:-2]
+        accel_px[1:-1] = np.linalg.norm(a2, axis=1)
+        accel_px[~fin] = np.nan                  # don't claim a value where there's no render
+    # 3D pose-translation jitter (mm/frame^2), occlusion-independent:
+    pt = poses[:, :3, 3] * 1000.0
+    accel_mm = np.full(T, np.nan)
+    accel_mm[1:-1] = np.linalg.norm(pt[2:] - 2 * pt[1:-1] + pt[:-2], axis=1)
+    for i, r in enumerate(rows):
+        r["reproj_accel_px"] = float(accel_px[i]) if np.isfinite(accel_px[i]) else ""
+        r["transl_accel_mm"] = float(accel_mm[i]) if np.isfinite(accel_mm[i]) else ""
 
     # ---- CSV ----
     csv_path = os.path.join(a.run, "object_confidence.csv")
@@ -363,6 +390,9 @@ def main():
     if np.isfinite(dciou).any():
         print(f"object dc-IoU    median={np.nanmedian(dciou):.3f}  p10={np.nanpercentile(dciou,10):.3f}  (hand-excluded; fair under occlusion)")
     print(f"object mask_cov  median={np.nanmedian(cov):.3f}  p10={np.nanpercentile(cov,10):.3f}")
+    print(f"JITTER reproj-accel median={np.nanmedian(accel_px):.2f}px  p90={np.nanpercentile(accel_px,90):.2f}px  "
+          f"(per-frame^2; lower=smoother)")
+    print(f"JITTER transl-accel median={np.nanmedian(accel_mm):.2f}mm  p90={np.nanpercentile(accel_mm,90):.2f}mm")
     print(f"occlusion        median={np.nanmedian(occ):.3f}  max={np.nanmax(occ):.3f}")
     if has_hand:
         oce = np.array([r["centroid_err_px"] for r in rows])

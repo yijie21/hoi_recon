@@ -50,6 +50,14 @@ def main():
     ap.add_argument("--chunk", type=int, default=24)
     ap.add_argument("--w_prior_obj", type=float, default=50.0,
                     help="object translation prior to the stage-6 (image-grounded) track")
+    ap.add_argument("--w_prior_obj_rot", type=float, default=50.0,
+                    help="object ROTATION prior to the stage-6 track. The object enters "
+                         "stage 7 already registered (stage 3 render-compare) and smooth "
+                         "(stage 5); without this anchor the per-frame silhouette/photometric "
+                         "terms shake its rotation (the main source of on-screen jitter).")
+    ap.add_argument("--w_accel_obj", type=float, default=20.0,
+                    help="acceleration smoothness on the object 6D specifically (the hand "
+                         "needs less; the object should ride its smooth registered track)")
     ap.add_argument("--w_kp2d", type=float, default=3.0,
                     help="robust 2D keypoint reprojection (hand image registration)")
     ap.add_argument("--kp_sigma", type=float, default=60.0,
@@ -165,7 +173,8 @@ def main():
     betas = betas0.clone().requires_grad_(True)
     o_r6 = matrix_to_rotation_6d(torch.tensor(Pobj[:, :3, :3], device=dev)).requires_grad_(True)
     o_t = torch.tensor(Pobj[:, :3, 3], device=dev).clone().requires_grad_(True)
-    o_t0 = torch.tensor(Pobj[:, :3, 3], device=dev)   # image-grounded init (prior)
+    o_t0 = torch.tensor(Pobj[:, :3, 3], device=dev)   # image-grounded init (transl prior)
+    o_r60 = matrix_to_rotation_6d(torch.tensor(Pobj[:, :3, :3], device=dev))  # rot prior
     opt = torch.optim.Adam([
         {"params": [g6, transl, o_r6, o_t], "lr": 0.006},
         {"params": [p6, betas], "lr": 0.003}], )
@@ -211,12 +220,18 @@ def main():
         loss = loss + 0.01 * (betas ** 2).mean()
         loss = loss + 2.0 * ((o_t[1:]-o_t[:-1])**2).mean() + 2.0 * ((o_r6[1:]-o_r6[:-1])**2).mean()
         # acceleration (2nd difference) smoothness — kills residual jitter that
-        # velocity terms alone leave (HMP-style)
-        for q in (transl, p6.reshape(T, -1), o_t, o_r6):
+        # velocity terms alone leave (HMP-style). Hand at w_accel; object at the
+        # stronger w_accel_obj (it should ride its smooth registered track, not
+        # re-jitter against the per-frame image terms).
+        for q in (transl, p6.reshape(T, -1)):
             loss = loss + a.w_accel * ((q[2:] - 2 * q[1:-1] + q[:-2]) ** 2).mean()
-        # object translation prior to the image-grounded stage-6 track (anti-
-        # inflation guard for the one-sided silhouette coverage term below)
+        for q in (o_t, o_r6):
+            loss = loss + a.w_accel_obj * ((q[2:] - 2 * q[1:-1] + q[:-2]) ** 2).mean()
+        # object priors to the image-grounded, smooth stage-6 track: translation
+        # (also the anti-inflation guard for the one-sided silhouette term) AND
+        # rotation (the previously-missing anchor that let the object spin-jitter).
         loss = loss + a.w_prior_obj * ((o_t - o_t0) ** 2).mean()
+        loss = loss + a.w_prior_obj_rot * ((o_r6 - o_r60) ** 2).mean()
         loss.backward(retain_graph=False)
 
         # contact + penetration + object image losses (chunked over visible frames)
