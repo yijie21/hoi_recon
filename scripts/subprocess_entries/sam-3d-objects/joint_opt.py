@@ -32,9 +32,14 @@ def main():
     ap.add_argument("--K", required=True)
     ap.add_argument("--mano_dir", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--occluder_dir", default=None,
+                    help="per-frame occluder masks (SAM2 hand, %%05d.npy): object render "
+                         "spilling onto them is don't-care in the silhouette term")
     ap.add_argument("--iters", type=int, default=250)
     ap.add_argument("--scale", type=float, default=0.3)
     ap.add_argument("--chunk", type=int, default=24)
+    ap.add_argument("--w_prior_obj", type=float, default=50.0,
+                    help="object translation prior to the stage-6 (image-grounded) track")
     a = ap.parse_args()
 
     import torch
@@ -77,6 +82,7 @@ def main():
     Kt = torch.tensor(K, dtype=torch.float32, device=dev)
 
     rgb = torch.zeros(T, Hh, Ww, 3, device=dev); omask = torch.zeros(T, Hh, Ww, device=dev)
+    hmask = torch.zeros(T, Hh, Ww, device=dev)        # occluder (hand); 0 if absent
     visible = np.zeros(T, bool)
     for t in range(T):
         rgb[t] = torch.tensor(cv2.cvtColor(cv2.resize(cv2.imread(frames[t]), (Ww, Hh)),
@@ -85,7 +91,17 @@ def main():
         if os.path.exists(mp):
             mr = cv2.resize(np.load(mp).astype(np.float32), (Ww, Hh), interpolation=cv2.INTER_NEAREST)
             omask[t] = torch.tensor(mr, device=dev); visible[t] = mr.sum() > 200
+        if a.occluder_dir:
+            hp = os.path.join(a.occluder_dir, f"{t:05d}.npy")
+            if os.path.exists(hp):
+                hh = cv2.resize(np.load(hp).astype(np.float32), (Ww, Hh),
+                                interpolation=cv2.INTER_NEAREST)
+                hh = cv2.dilate(hh, np.ones((9, 9), np.float32))   # over-cover on purpose
+                hmask[t] = torch.tensor(hh, device=dev)
     vis = np.where(visible)[0]
+    if a.occluder_dir:
+        print(f"[jopt] occluder masks: {a.occluder_dir} "
+              f"({int((hmask.sum((1,2))>0).sum())}/{T} frames)")
 
     # MANO (right hand) as a LAYER -> takes rotation matrices directly (HaMeR uses
     # this; smplx.MANO mishandles rotmat input via pose_mean). Left-hand frames are
@@ -109,6 +125,7 @@ def main():
     betas = betas0.clone().requires_grad_(True)
     o_r6 = matrix_to_rotation_6d(torch.tensor(Pobj[:, :3, :3], device=dev)).requires_grad_(True)
     o_t = torch.tensor(Pobj[:, :3, 3], device=dev).clone().requires_grad_(True)
+    o_t0 = torch.tensor(Pobj[:, :3, 3], device=dev)   # image-grounded init (prior)
     opt = torch.optim.Adam([
         {"params": [g6, transl, o_r6, o_t], "lr": 0.006},
         {"params": [p6, betas], "lr": 0.003}], )
@@ -140,6 +157,9 @@ def main():
         loss = loss + 0.5 * ((p6 - matrix_to_rotation_6d(mano_pose.reshape(-1,3,3)).reshape(T,15,6)) ** 2).mean()
         loss = loss + 0.01 * (betas ** 2).mean()
         loss = loss + 2.0 * ((o_t[1:]-o_t[:-1])**2).mean() + 2.0 * ((o_r6[1:]-o_r6[:-1])**2).mean()
+        # object translation prior to the image-grounded stage-6 track (anti-
+        # inflation guard for the one-sided silhouette coverage term below)
+        loss = loss + a.w_prior_obj * ((o_t - o_t0) ** 2).mean()
         loss.backward(retain_graph=False)
 
         # contact + penetration + object image losses (chunked over visible frames)
@@ -160,8 +180,14 @@ def main():
                 image_size=torch.tensor([[Hh, Ww]], device=dev).expand(len(ti), -1).float())
             meshes = omesh.extend(len(ti))
             sil = silsh(MeshRasterizer(cameras=cams, raster_settings=sil_rs)(meshes), meshes, cameras=cams)[..., 3]
-            mk = omask[ti]
-            l_sil = (1 - (sil*mk).sum((1,2)) / (sil+mk-sil*mk).sum((1,2)).clamp(min=1)).mean()
+            # occlusion-robust silhouette: DON'T-CARE IoU — render-over-occluder
+            # pixels excluded from the union (plain IoU when no occluder; under
+            # occlusion neither pulled into the visible sliver nor rewarded for
+            # inflating over the hand region)
+            mk = omask[ti]; hk = hmask[ti]
+            inter = (sil*mk).sum((1,2))
+            union = (sil + mk - sil*mk - sil*(1-mk)*hk).sum((1,2))
+            l_sil = (1 - inter / union.clamp(min=1)).mean()
             img = MeshRenderer(rasterizer=MeshRasterizer(cameras=cams, raster_settings=pho_rs),
                                shader=SoftPhongShader(device=dev, cameras=cams, lights=lights, blend_params=bp))(meshes)
             w = (img[...,3].detach()*mk)[...,None]
