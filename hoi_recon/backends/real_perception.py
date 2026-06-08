@@ -394,8 +394,9 @@ def _hand_occluder_dir(stage_dir):
 
 def run_joint_optimizer(cfg, run_dir, s2, s6, frame_paths, mask_paths, K):
     """Joint differentiable hand+object render-and-compare (PyTorch3D + MANO, sam3d
-    env). Optimizes MANO articulation + object 6D against silhouette/photometric +
-    contact + non-penetration. Returns (hand_verts[T,778,3], obj_poses[T,4,4]).
+    env). Optimizes MANO articulation + object 6D against keypoint-reprojection /
+    silhouette / photometric + contact + non-penetration. Returns
+    (hand_verts[T,778,3], hand_joints[T,21,3] or None, obj_poses[T,4,4]).
     Requires the threaded MANO params from stage 2."""
     import subprocess
     from ..logging_utils import log
@@ -413,10 +414,16 @@ def run_joint_optimizer(cfg, run_dir, s2, s6, frame_paths, mask_paths, K):
         hand_side = s2.get("hand_side")
         if hand_side is None:
             hand_side = np.ones(len(s2["verts"]), np.int64)
+        # kp2d: HaMeR's 21 2D keypoints (full-image px, OpenPose joint order, already
+        # un-mirrored for left hands) — drives the keypoint reprojection loss that
+        # registers the hand to the image (the hand's primary image-space evidence).
+        kp2d = s2.get("kp2d")
+        if kp2d is None:
+            kp2d = np.zeros((len(s2["verts"]), 21, 2))
         np.savez(hnpz, mano_global=s2["mano_global"], mano_pose=s2["mano_pose"],
                  mano_betas=s2["mano_betas"], verts=s2["verts"], joints=s2["joints"],
                  contact_idx=s2["contact_idx"], hand_faces=s2["hand_faces"],
-                 hand_side=hand_side)
+                 hand_side=hand_side, kp2d=kp2d)
         onpz = os.path.join(jo_dir, "obj.npz")
         np.savez(onpz, verts=np.asarray(s6["obj_verts"]), faces=s6["obj_faces"],
                  vertex_colors=s6["obj_colors"], poses=s6["obj_poses"])
@@ -431,7 +438,8 @@ def run_joint_optimizer(cfg, run_dir, s2, s6, frame_paths, mask_paths, K):
                os.path.join(repo, "joint_opt.py"), "--hand", os.path.abspath(hnpz),
                "--obj", os.path.abspath(onpz), "--frames_dir", frames_dir,
                "--masks_dir", masks_dir, "--K", os.path.abspath(Kp),
-               "--mano_dir", mano_dir, "--out", os.path.abspath(out_npz), "--iters", "250"]
+               "--mano_dir", mano_dir, "--out", os.path.abspath(out_npz), "--iters", "400",
+               "--w_kp2d", "3.0", "--kp_sigma", "60.0"]
         occl = _hand_occluder_dir(run_dir)
         if occl:
             cmd += ["--occluder_dir", occl]
@@ -443,7 +451,8 @@ def run_joint_optimizer(cfg, run_dir, s2, s6, frame_paths, mask_paths, K):
     else:
         log(f"joint optimizer: reusing cached {out_npz}")
     d = np.load(out_npz)
-    return d["hand_verts"], d["obj_poses"]
+    hj = d["hand_joints"] if "hand_joints" in d.files else None
+    return d["hand_verts"], hj, d["obj_poses"]
 
 
 def run_object_pose_render_compare(cfg, run_dir, frame_paths, mask_paths, K,

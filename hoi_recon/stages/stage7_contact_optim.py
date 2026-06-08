@@ -119,9 +119,11 @@ def run(ctx) -> Bundle:
         mask_paths = [(_os.path.join(mdir, f"{i:05d}.npy")
                        if _os.path.exists(_os.path.join(mdir, f"{i:05d}.npy")) else None)
                       for i in range(T)]
-        hand_verts, poses = run_joint_optimizer(cfg, ctx.stage_dir(NAME), s2, s6,
-                                                frame_paths, mask_paths, s0["intrinsics"])
-        hand_joints = s6["hand_joints"]
+        hand_verts, hj, poses = run_joint_optimizer(cfg, ctx.stage_dir(NAME), s2, s6,
+                                                    frame_paths, mask_paths, s0["intrinsics"])
+        # optimized MANO joints (consistent with the moved hand); fall back to the
+        # stage-6 joints only for caches predating the hand_joints output
+        hand_joints = hj if hj is not None else s6["hand_joints"]
         hand_c = hand_verts[:, contact_idx]
         d = poses[:, :3, 3] - poses0[:, :3, 3]
         log("joint optimizer (differentiable MANO+object) applied")
