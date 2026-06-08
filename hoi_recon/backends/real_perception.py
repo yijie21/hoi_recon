@@ -501,6 +501,114 @@ def run_object_pose_render_compare(cfg, run_dir, frame_paths, mask_paths, K,
     return np.load(out_npz)["poses"]
 
 
+def run_choir_object_fit(cfg, run_dir, frame_paths, mask_paths, K, verts, faces,
+                         init_poses):
+    """CHOIR object isolated fit (Eq 2-3, repulsion+attraction) on the fixed SAM-3D
+    mesh, refining the guarded-follow-tracker init poses. Subprocess in the sam3d
+    env (PyTorch3D). Cached. Returns poses[T,4,4]."""
+    import subprocess
+    from ..logging_utils import log
+    repo = require_repo(cfg.paths.third_party, "sam-3d-objects", "")
+    cc_dir = os.path.join(run_dir, "choir_obj"); os.makedirs(cc_dir, exist_ok=True)
+    out_npz = os.path.join(cc_dir, "poses.npz")
+    if not os.path.exists(out_npz):
+        mesh_npz = os.path.join(cc_dir, "mesh.npz")
+        np.savez(mesh_npz, verts=np.asarray(verts), faces=np.asarray(faces))
+        init_npz = os.path.join(cc_dir, "init.npz"); np.savez(init_npz, poses=init_poses)
+        K_npy = os.path.join(cc_dir, "K.npy"); np.save(K_npy, np.asarray(K))
+        env_name = (cfg.backend.get("sam3d_env", "sam3d-objects")
+                    if hasattr(cfg.backend, "get") else "sam3d-objects")
+        conda = os.environ.get("CONDA_EXE", "conda")
+        masks_dir = os.path.dirname(os.path.abspath(mask_paths[
+            next(i for i, p in enumerate(mask_paths) if p)]))
+        frames_dir = os.path.dirname(os.path.abspath(frame_paths[0]))
+        o = cfg.choir.object
+        cmd = [conda, "run", "--no-capture-output", "-n", env_name, "python",
+               os.path.join(repo, "choir_object_fit.py"), "--mesh", os.path.abspath(mesh_npz),
+               "--masks_dir", masks_dir, "--frames_dir", frames_dir,
+               "--K", os.path.abspath(K_npy), "--init_poses", os.path.abspath(init_npz),
+               "--out", os.path.abspath(out_npz),
+               "--iters", str(int(o.get("iters", 500))), "--lr", str(float(o.get("lr", 1e-3))),
+               "--lambda_rep", str(float(o.get("lambda_rep", 1.5))),
+               "--lambda_attr", str(float(o.get("lambda_attr", 1.0))),
+               "--lambda_temp", str(float(o.get("lambda_temp", 10.0))),
+               "--lambda_stat", str(float(o.get("lambda_stat", 1.0)))]
+        log(f"object pose: CHOIR isolated fit (repulsion+attraction, env '{env_name}')...")
+        r = subprocess.run(cmd, cwd=repo)
+        if r.returncode != 0 or not os.path.exists(out_npz):
+            raise BackendNotAvailable(f"CHOIR object fit failed (exit {r.returncode}).")
+    else:
+        log(f"object pose: reusing cached CHOIR isolated fit {out_npz}")
+    return np.load(out_npz)["poses"]
+
+
+def run_dynhamr(cfg, run_dir, frame_paths, K):
+    """Dyn-HaMR 4D hand stabilization (CHOIR's hand temporal stage). Runs in its own
+    `dynhamr` conda env (torch 1.13) as a subprocess. Returns dict(verts[T,778,3],
+    joints[T,21,3]) in the camera frame, or None if the env / weights are not set up
+    (graceful fallback to HaMeR + the isolated fit). Cached per run."""
+    import subprocess
+    from ..logging_utils import log
+    env_name = (cfg.backend.get("dynhamr_env", "dynhamr")
+                if hasattr(cfg.backend, "get") else "dynhamr")
+    repo = os.path.join(cfg.paths.third_party, "Dyn-HaMR")
+    entry = os.path.join(repo, "dynhamr_track.py")
+    out_npz = os.path.join(run_dir, "dynhamr", "hand.npz")
+    if os.path.exists(out_npz):
+        log(f"hand: reusing cached Dyn-HaMR {out_npz}")
+        return dict(np.load(out_npz))
+    # availability checks — fall back silently (returns None) if not set up
+    conda = os.environ.get("CONDA_EXE", "conda")
+    envs = subprocess.run([conda, "env", "list"], capture_output=True, text=True).stdout
+    if env_name not in envs or not os.path.exists(entry):
+        return None
+    os.makedirs(os.path.dirname(out_npz), exist_ok=True)
+    frames_dir = os.path.dirname(os.path.abspath(frame_paths[0]))
+    K_npy = os.path.join(run_dir, "dynhamr", "K.npy"); np.save(K_npy, np.asarray(K))
+    cmd = [conda, "run", "--no-capture-output", "-n", env_name, "python", entry,
+           "--frames_dir", frames_dir, "--K", os.path.abspath(K_npy),
+           "--out", os.path.abspath(out_npz), "--is_static"]
+    log(f"hand: running Dyn-HaMR (env '{env_name}') for 4D stabilization...")
+    r = subprocess.run(cmd, cwd=repo)
+    if r.returncode != 0 or not os.path.exists(out_npz):
+        log(f"hand: Dyn-HaMR run failed (exit {r.returncode}); HaMeR fallback", "warn")
+        return None
+    return dict(np.load(out_npz))
+
+
+def run_vipe_camera(cfg, frame_paths, out_dir):
+    """VIPE camera trajectory + intrinsics (CHOIR's camera backend). Runs in its own
+    `vipe` conda env as a subprocess. Returns dict(intrinsics, extrinsics[T,4,4]
+    world->cam, camera_source) or None if VIPE is not set up (graceful fallback to
+    identity extrinsics). Cached per run."""
+    import subprocess
+    from ..logging_utils import log
+    env_name = (cfg.backend.get("vipe_env", "vipe")
+                if hasattr(cfg.backend, "get") else "vipe")
+    out_npz = os.path.join(out_dir, "vipe", "cam.npz")
+    if os.path.exists(out_npz):
+        g = np.load(out_npz)
+        return {"intrinsics": g["intrinsics"], "extrinsics": g["extrinsics"],
+                "camera_source": "vipe"}
+    conda = os.environ.get("CONDA_EXE", "conda")
+    envs = subprocess.run([conda, "env", "list"], capture_output=True, text=True).stdout
+    entry = os.path.join(cfg.paths.third_party, "vipe", "vipe_camera.py")
+    if env_name not in envs or not os.path.exists(entry):
+        return None
+    os.makedirs(os.path.dirname(out_npz), exist_ok=True)
+    frames_dir = os.path.dirname(os.path.abspath(frame_paths[0]))
+    cmd = [conda, "run", "--no-capture-output", "-n", env_name, "python", entry,
+           "--frames_dir", frames_dir, "--out", os.path.abspath(out_npz)]
+    log(f"camera: running VIPE (env '{env_name}')...")
+    r = subprocess.run(cmd, cwd=os.path.join(cfg.paths.third_party, "vipe"))
+    if r.returncode != 0 or not os.path.exists(out_npz):
+        log(f"camera: VIPE run failed (exit {r.returncode}); identity fallback", "warn")
+        return None
+    g = np.load(out_npz)
+    return {"intrinsics": g["intrinsics"], "extrinsics": g["extrinsics"],
+            "camera_source": "vipe"}
+
+
 def run_object_pose_foundationpose(cfg, run_dir, frame_paths, mask_paths,
                                    depth_paths, K, verts, faces):
     """Per-frame object 6D pose via FoundationPose (model-based RGB-D tracker).

@@ -68,7 +68,18 @@ def run(ctx) -> Bundle:
         depth_dir = geo["depth_dir"]
         H, W = geo["image_size"]
         has_depth = True
-        if geo.get("camera_source") in ("da3", "vggt"):
+        # CHOIR / --camera vipe: override extrinsics with the VIPE trajectory
+        # (graceful fallback to identity/MoGe if the vipe env is not set up).
+        if (cfg.backend.get("camera") if hasattr(cfg.backend, "get") else None) == "vipe":
+            from ..backends.real_perception import run_vipe_camera
+            vp = run_vipe_camera(cfg, paths, ctx.stage_dir(NAME))
+            if vp is not None:
+                extr = vp["extrinsics"]; geo["camera_source"] = "vipe"
+                log("camera: VIPE extrinsics applied")
+            else:
+                log("camera: VIPE env not set up; identity extrinsics fallback "
+                    "(run scripts/setup_choir_envs.sh for full-faithful CHOIR)", "warn")
+        if geo.get("camera_source") in ("da3", "vggt", "vipe"):
             log(f"camera: using {geo['camera_source'].upper()} estimated poses "
                 f"(real extrinsics, consistent geometry)")
         else:

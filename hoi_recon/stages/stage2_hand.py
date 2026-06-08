@@ -71,6 +71,26 @@ def run(ctx) -> Bundle:
         out = rp.run_hand(cfg, frame_paths, boxes, valid, depth_paths, s0["intrinsics"])
         model_free = False
 
+    # CHOIR coarse: optional Dyn-HaMR 4D stabilization, then the hand isolated fit
+    # (Eq 1). Dyn-HaMR runs in its own env (graceful fallback to HaMeR if absent).
+    coarse = cfg.get("coarse") if hasattr(cfg, "get") else None
+    if coarse == "choir" and not model_free and out.get("kp2d") is not None:
+        from ..choir import hand_isolated_fit
+        try:
+            from ..backends.real_perception import run_dynhamr
+            dyn = run_dynhamr(cfg, ctx.stage_dir(NAME), frame_paths, s0["intrinsics"])
+            if dyn is not None:
+                out["verts"], out["joints"] = dyn["verts"], dyn["joints"]
+                log("CHOIR hand: Dyn-HaMR 4D stabilization applied")
+        except Exception as e:
+            log(f"CHOIR hand: Dyn-HaMR unavailable ({e}); HaMeR + isolated fit only", "warn")
+        kp_valid = (np.abs(out["kp2d"]).sum((1, 2)) > 0)
+        v2, j2 = hand_isolated_fit(out["verts"], out["joints"], out["kp2d"], kp_valid,
+                                   depth_paths, boxes, valid, s0["intrinsics"],
+                                   cfg.choir.hand)
+        out["verts"], out["joints"] = v2, j2
+        log("CHOIR hand: isolated fit (Eq 1) applied")
+
     arrays = {k: v for k, v in out.items() if v is not None}
     side = out.get("hand_side")          # per-frame 1=right, 0=left (HaMeR branch)
     side_name = ("right" if side is None

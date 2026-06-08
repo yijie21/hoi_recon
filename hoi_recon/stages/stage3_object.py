@@ -116,6 +116,28 @@ def run(ctx) -> Bundle:
             s2 = ctx.load("stage2_hand")
             poses = couple_object_to_hand(out["poses"], s2["joints"],
                                           s1["hand_valid"].astype(bool), float(out["radius"]))
+        elif pose_method == "choir_tracker":
+            # CHOIR guarded follow-tracker (silhouette track + 60deg angular guard)
+            # -> object isolated fit (Eq 2-3, repulsion+attraction) on the fixed mesh.
+            from ..object_pose_track import track_object_rotation
+            from ..choir import angular_guard
+            from ..backends.real_perception import run_choir_object_fit
+            visible = np.array([(np.load(p).sum() > 2000) if p else False
+                                for p in mask_paths])
+            R = track_object_rotation(out["verts"], centroids, mask_paths,
+                                      s0["intrinsics"], visible, log=log)
+            guard = float(cfg.choir.object.get("guard_deg", 60.0))
+            prev = None                           # reject >guard jumps, hold previous
+            for i in range(T):
+                if prev is not None and visible[i] and not angular_guard(R[i], prev, guard):
+                    R[i] = prev
+                elif visible[i]:
+                    prev = R[i]
+            poses[:, :3, :3] = R
+            poses = run_choir_object_fit(cfg, ctx.stage_dir(NAME), frame_paths,
+                                         mask_paths, s0["intrinsics"], out["verts"],
+                                         out["faces"], poses)
+            rot_src = "choir_tracker"
         else:                                   # 'silhouette' (default) or 'render_compare'
             from ..object_pose_track import track_object_rotation
             visible = np.array([(np.load(p).sum() > 2000) if p else False

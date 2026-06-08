@@ -1,0 +1,55 @@
+# CHOIR coarse-init reproduction (arXiv:2605.20992), for side-by-side comparison
+# against this repo's own coarse pipeline (configs/new.yaml).
+#
+# Run:
+#   python -m hoi_recon.cli --video examples/grab.mp4 --out runs/grab_choir --real \
+#       --config configs/choir.yaml
+#   # then compare runs/grab_choir (CHOIR coarse) vs runs/grab (ours)
+#
+# This reproduces CHOIR's Stage 1 (coarse, contact-agnostic HOI) as faithfully as
+# practical: HaMeR -> Dyn-HaMR hand with an isolated fit (Eq 1); SAM-3D-Objects
+# anchor mesh + guarded follow-tracker + object isolated fit (Eq 2-3, repulsion +
+# attraction); VIPE camera; and ray-scale alignment (slide the object along the
+# camera ray so its interaction depth matches the hand). It stops BEFORE CHOIR's
+# flow-matching rectification + contact-aware optimization — the point is to
+# compare the COARSE init, not the full method.
+mock: false
+
+coarse: choir            # selects the CHOIR coarse path in stages 2/3/4
+
+backend:
+  hand: hamer            # HaMeR per-frame MANO (+ Dyn-HaMR temporal stabilization)
+  object: sam3d          # SAM-3D-Objects anchor mesh + metric scale + initial 6D
+  depth: moge            # MoGe-v2 metric depth (SAM-3D uses MoGeV2 internally too)
+  camera: vipe           # VIPE camera trajectory (CHOIR's camera backend)
+  object_pose: choir_tracker   # guarded follow-tracker + isolated fit (Eq 2-3)
+  hand_temporal: dynhamr       # Dyn-HaMR 4D hand stabilization
+  sam3d_env: sam3d-objects
+
+choir:                   # CHOIR Stage-1 hyperparameters (paper supplementary 7.1)
+  hand:                  # isolated fit (Eq 1)
+    lambda_2d: 1.0
+    lambda_depth: 10.0
+    lambda_anat: 5.0
+    lambda_prior: 1.0
+    lambda_temp: 1.0     # = max(0.1 * lambda_temp_o, 1.0) = max(1.0, 1.0)
+    iters: 500
+    lr: 0.001
+  object:                # isolated fit (Eq 2-3) + guarded follow-tracker
+    lambda_rep: 1.5      # repulsion: rendered pixels outside the target mask
+    lambda_attr: 1.0     # attraction: pull mesh toward uncovered mask regions
+    lambda_temp: 10.0
+    lambda_stat: 1.0
+    iters: 500
+    lr: 0.001
+    guard_deg: 60.0      # reject a follow-track frame if >60deg angular jump
+  ray_scale:
+    enable: true         # slide object along camera ray to match hand depth stats
+
+contact:
+  dist_thresh_m: 0.02
+  normal_thresh_deg: 60.0
+  knn_k: 50
+
+smoothing:
+  window: 5

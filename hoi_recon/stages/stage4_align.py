@@ -40,6 +40,17 @@ def run(ctx) -> Bundle:
         # TODO(real): solve global similarity to metric depth (geometry.umeyama).
         log("real-mode metric scale solve not yet wired; using world_scale=1", "warn")
 
+    # CHOIR coarse: ray-scale alignment — slide the object along the camera ray so
+    # its interaction depth matches the hand (preserves the silhouette fit).
+    coarse = cfg.get("coarse") if hasattr(cfg, "get") else None
+    if coarse == "choir" and not cfg.mock and \
+            (cfg.choir.ray_scale.get("enable", True) if hasattr(cfg.choir.ray_scale, "get") else True):
+        from ..choir import ray_scale_align
+        obj_poses = ray_scale_align(obj_poses, obj_verts, hand_verts, contact_idx,
+                                    s0["intrinsics"])
+        log("CHOIR: ray-scale alignment applied (object slid along camera ray to "
+            "match hand depth)")
+
     objw, _ = all_object_world(obj_verts, obj_faces, obj_poses)
     gaps = np.array([contact_gap(hand_verts[i, contact_idx], objw[i]) for i in range(T)])
     log(f"contact-frame surface gap: min={gaps.min()*1000:.1f}mm "
