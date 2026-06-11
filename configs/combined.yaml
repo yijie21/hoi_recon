@@ -1,0 +1,71 @@
+# Best-of-both HOI reconstruction: CHOIR's hand + this repo's object.
+#
+#   python -m hoi_recon.cli --video examples/grab.mp4 --out runs/grab_combined --real \
+#       --config configs/combined.yaml
+#   hoi-recon-view --run runs/grab_combined
+#
+# The A/B comparison (method_comparison.html) showed each method wins a different
+# half of the problem:
+#   * OBJECT  — ours wins: render-and-compare (silhouette + PHOTOMETRIC) recovers
+#               in-hand spin and tracks 6D more accurately than CHOIR's
+#               silhouette-only guarded tracker.
+#   * HAND    — CHOIR wins: the isolated fit (Eq 1) registers the hand to 2D
+#               keypoints + metric wrist depth with a smooth per-frame rigid
+#               correction, giving a cleaner hand than HaMeR-alone.
+#
+# This config takes BOTH winners, then runs this repo's contact-aware stages 6-7
+# (the joint optimizer anchors the hand to the CHOIR-corrected verts with a strong
+# depth weight, so the better hand init is preserved AND refined for grasp).
+mock: false
+
+coarse: choir            # enables the CHOIR hand path in stage 2 (Eq-1 isolated fit)
+                         # NOTE: object stays on render_compare below — `coarse` only
+                         # gates the hand fit (stage 2) and ray-scale (stage 4); the
+                         # object branch is selected independently by object_pose.
+
+backend:
+  hand: hamer            # HaMeR -> MANO (+ CHOIR isolated fit; + Dyn-HaMR if env built)
+  object: sam3d          # SAM-3D-Objects textured mesh
+  depth: moge            # MoGe-v2 metric depth
+  object_pose: render_compare   # OURS — differentiable silhouette+photometric 6D (wins object)
+  hand_temporal: dynhamr        # CHOIR 4D hand stabilization (graceful fallback to HaMeR)
+  sam3d_env: sam3d-objects
+
+choir:                   # CHOIR Stage-1 hyperparameters (only the HAND block is used here)
+  hand:                  # isolated fit (Eq 1) — the part we keep
+    lambda_2d: 1.0
+    lambda_depth: 10.0
+    lambda_anat: 5.0
+    lambda_prior: 1.0
+    lambda_temp: 1.0
+    iters: 500
+    lr: 0.001
+  object:                # present for schema completeness; UNUSED (object uses render_compare)
+    lambda_rep: 1.5
+    lambda_attr: 1.0
+    lambda_temp: 10.0
+    lambda_stat: 1.0
+    iters: 500
+    lr: 0.001
+    guard_deg: 60.0
+  ray_scale:
+    enable: false        # KEEP ours' render-compare object depth — do NOT slide the
+                         # object along the camera ray (that step exists to fix CHOIR's
+                         # weaker object depth; our object is already metric-accurate).
+
+optim:                   # stage 7: joint MANO-articulation + object render-and-compare
+  differentiable: true   # fingers curl to grasp; contact + non-penetration + photometric.
+  iters: 200             # The hand anchor (6.0*z, 1.0*xy in joint_opt.py) ties the result
+  lr: 0.02               # to the CHOIR-corrected hand verts, preserving the better init.
+  w_contact: 1.0
+  w_pen: 0.3
+  w_temporal: 0.2
+  w_anchor: 0.02
+
+contact:
+  dist_thresh_m: 0.02
+  normal_thresh_deg: 60.0
+  knn_k: 50
+
+smoothing:
+  window: 5
