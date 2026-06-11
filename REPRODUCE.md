@@ -1,21 +1,25 @@
 # Reproducing the real (GPU) pipeline on another machine
 
-End goal — **the validated configuration** (the result in `runs/grab`):
+End goal — **the best-performance configuration** (the result in `runs/grab_combined`):
 
 ```bash
-python -m hoi_recon.cli --video examples/grab.mp4 --out runs/grab --real \
-    --hand hamer --object sam3d --depth moge --config configs/new.yaml
-hoi-recon-view --run runs/grab                        # view the 4D result in a browser
+python -m hoi_recon.cli --video examples/grab.mp4 --out runs/grab_combined --real \
+    --config configs/combined.yaml
+hoi-recon-view --run runs/grab_combined               # view the 4D result in a browser
 ```
 
-`--config configs/new.yaml` selects the redesigned differentiable pipeline:
-SAM-3D textured object mesh, **render-and-compare** object 6D (silhouette +
-photometric), and the **joint MANO-articulation + object** grasp optimizer in
-stage 7. It needs **two conda envs**: the main `hoi_recon` env (§1–3) plus a
-`sam3d-objects` env (§3b) that hosts the PyTorch3D/SAM-3D components, run as
-cached subprocesses. Without `--config configs/new.yaml` you get the older path
-(silhouette-only object rotation, rigid non-articulated grasp), which runs in the
-single main env:
+`--config configs/combined.yaml` is the best-of-both pipeline: SAM-3D textured
+object mesh, **render-and-compare** object 6D (silhouette + photometric), the
+**CHOIR hand isolated fit (Eq 1)** in stage 2 for a much cleaner hand init, and the
+**joint MANO-articulation + object** grasp optimizer in stage 7. It is
+`configs/new.yaml` (the prior validated path) **plus** the one CHOIR hand-fit
+addition; `new.yaml` still works if you want the baseline without the hand fit.
+Either way you need **two conda envs**: the main `hoi_recon` env (§1–3) plus a
+`sam3d-objects` env (§3b) that hosts the PyTorch3D/SAM-3D components, run as cached
+subprocesses. (`configs/choir.yaml` is a separate A/B-study config that reproduces
+CHOIR's coarse init only — not for production.) Without any `--config` you get the
+oldest path (silhouette-only object rotation, rigid non-articulated grasp), which
+runs in the single main env:
 
 ```bash
 python -m hoi_recon.cli --video path/to/clip.mp4 --out runs/clip01 --real \
@@ -184,8 +188,12 @@ The set this was validated against (RTX 5080 / CUDA 12.8):
 ## 6. Run
 
 ```bash
-# THE VALIDATED CONFIGURATION (differentiable render-and-compare + joint
+# BEST PERFORMANCE (render-and-compare object + CHOIR hand fit + joint
 # articulated-grasp optimizer; needs both envs + MANO):
+python -m hoi_recon.cli --video examples/grab.mp4 --out runs/grab_combined --real \
+    --config configs/combined.yaml
+
+# Prior validated baseline (same, minus the CHOIR hand fit):
 python -m hoi_recon.cli --video examples/grab.mp4 --out runs/grab --real \
     --hand hamer --object sam3d --depth moge --config configs/new.yaml
 
@@ -193,7 +201,7 @@ python -m hoi_recon.cli --video examples/grab.mp4 --out runs/grab --real \
 python -m hoi_recon.cli --video clip.mp4 --out runs/clip01 --real \
     --hand depthlift --object sam3d --depth moge
 
-hoi-recon-view --run runs/grab              # browser viewer of the 4D HOI
+hoi-recon-view --run runs/grab_combined     # browser viewer of the 4D HOI
 ```
 
 The run also writes reprojection-overlay validation videos
@@ -211,7 +219,7 @@ run dir, so you can check hand/object registration against the input video.
 | 0 depth + real camera poses | Depth-Anything-3 (`--depth da3`) | ⚙️ wired; clone+install DA3 (metric depth + real extrinsics; replaces ViPE) |
 | 1 hand boxes | WiLoR YOLO | ✅ verified |
 | 1 object mask | SAM 2.1 (point-prompt + propagate) | ✅ verified |
-| 2 hand → MANO | `--hand hamer` (HaMeR; depth-anchored, MANO params threaded to stage 7) | ✅ verified (needs MANO) |
+| 2 hand → MANO | `--hand hamer` (HaMeR; depth-anchored, MANO params threaded to stage 7); `configs/combined.yaml` adds the CHOIR isolated fit (Eq 1) | ✅ verified (needs MANO) |
 | 2 hand (MANO-free) | `--hand depthlift` (MoGe depth lift) | ✅ verified end-to-end |
 | 3 object shape | SAM-3D-Objects textured mesh (sam3d env); fails soft to depth-lift hull | ✅ verified |
 | 3 object 6D | `object_pose: render_compare` (silhouette tracker → differentiable refine); alternatives `silhouette` / `foundationpose` / `hand` | ✅ verified |
@@ -219,9 +227,10 @@ run dir, so you can check hand/object registration against the input video.
 | 8 eval + reprojection overlays | this repo | ✅ verified |
 | viewer | viser | ✅ verified |
 
-The full `configs/new.yaml` pipeline is verified end-to-end on `examples/grab.mp4`
-(the `runs/grab` result). `--hand depthlift` remains the no-license, single-env way
-to run everything.
+The full pipeline is verified end-to-end on `examples/grab.mp4`: `configs/combined.yaml`
+(the best-performance `runs/grab_combined` result) and `configs/new.yaml` (the prior
+`runs/grab` baseline). `--hand depthlift` remains the no-license, single-env way to run
+everything.
 
 ## Troubleshooting
 

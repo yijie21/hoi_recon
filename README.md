@@ -111,20 +111,30 @@ bash scripts/download_checkpoints.sh   # fetch MoGe / SAM2 / WiLoR / HaMeR weigh
 #   plus the second conda env for the heavy differentiable components:
 #   `sam3d-objects` (SAM-3D-Objects + PyTorch3D; see third_party/sam-3d-objects/doc/setup.md)
 
-# 1. run the composed pipeline on a clip — THE VALIDATED CONFIGURATION
-python -m hoi_recon.cli --video examples/grab.mp4 --out runs/grab --real \
-    --hand hamer --object sam3d --depth moge --config configs/new.yaml
-hoi-recon-view --run runs/grab           # view the 4D result
+# 1. run the composed pipeline on a clip — THE BEST-PERFORMANCE CONFIGURATION
+python -m hoi_recon.cli --video examples/grab.mp4 --out runs/grab_combined --real \
+    --config configs/combined.yaml
+hoi-recon-view --run runs/grab_combined  # view the 4D result
 ```
 
-**`--config configs/new.yaml` matters.** It switches on the redesigned
-differentiable pipeline (the result in `runs/grab`):
+**Use `--config configs/combined.yaml` for the best results.** It is the
+best-of-both pipeline: it keeps the strong **object** tracker from `new.yaml`
+(differentiable render-and-compare) and adds the strong **hand** init from CHOIR
+(an image-registration fit), then runs the same contact-aware optimization. What it
+turns on:
 
+- `coarse: choir` — stage 2 adds the **CHOIR hand isolated fit (Eq 1)**: a per-frame
+  rigid correction that registers the MANO hand to its 2D keypoints + metric wrist
+  depth. This takes the *coarse* hand from ~63 px to ~10 px keypoint-reprojection
+  error — a much cleaner hand init (see `combined_method.html`).
 - `backend.object_pose: render_compare` — object **rotation** is recovered from the
   object's own image evidence: a fast numpy silhouette tracker
   (`hoi_recon/object_pose_track.py`) seeds a **differentiable render-and-compare**
   refinement (PyTorch3D; silhouette IoU + a *photometric* term against the SAM-3D
   textured mesh, which recovers the spin-about-axis DOF a silhouette can't see).
+- `choir.ray_scale.enable: false` — the render-compare object is already
+  metric-accurate, so the object is **not** slid along the camera ray (that CHOIR
+  step exists to fix a weaker object depth; here it would only move a good object).
 - `optim.differentiable: true` — stage 7 runs the **joint optimizer**: MANO
   articulation + object 6D optimized together under silhouette / photometric /
   contact / non-penetration energies, so the fingers actually curl to grasp
@@ -134,8 +144,21 @@ differentiable pipeline (the result in `runs/grab`):
   run as cached **subprocesses in that second conda env**, because their torch /
   numpy pins conflict with this env's MoGe/SAM2 stack.
 
-Without `--config configs/new.yaml` you get the older path: silhouette-only object
-rotation and the rigid (non-articulated) grasp optimizer.
+### Which config should I use?
+
+| config | what it is | when |
+|--------|-----------|------|
+| **`configs/combined.yaml`** | **best performance** — render-compare object **+** CHOIR hand fit + contact-aware optim | **use this** |
+| `configs/new.yaml` | the prior validated path: render-compare object, plain HaMeR hand (no CHOIR fit) | the baseline `combined.yaml` builds on |
+| `configs/choir.yaml` | a faithful reproduction of CHOIR's *coarse* init for the A/B study only — **stops at the coarse stage** | comparison / research, not production |
+
+`combined.yaml` = `new.yaml` **+ one addition** (the CHOIR hand fit in stage 2);
+everything else is identical. Final-output quality is at least as good as `new.yaml`
+on every metric (object preserved, contact gap slightly tighter), with the big,
+visible win on the **coarse** hand. The A/B study behind this choice is written up in
+`method_comparison.html` (ours vs CHOIR coarse) and `combined_method.html` (the
+combined pipeline + metrics). Without any `--config` you get the oldest path:
+silhouette-only object rotation and the rigid (non-articulated) grasp optimizer.
 
 ### What each real backend uses (verified on an RTX 5080 / CUDA 12.8)
 
@@ -146,7 +169,7 @@ rotation and the rigid (non-articulated) grasp optimizer.
 | 0 depth + camera poses | `--depth da3` | **Depth-Anything-3** (metric depth + intrinsics + real extrinsics) | ⚙️ wired (clone+install DA3 to use) |
 | 1 hand detection | — | **WiLoR YOLO** detector (no detectron2) | ✅ working |
 | 1 object mask | — | **SAM 2.1** (point-prompted, propagated) | ✅ working |
-| 2 hand → MANO | `--hand hamer` | **HaMeR** (boxes from stage 1; depth-anchored into the metric frame; MANO params threaded through to the stage-7 optimizer) | ✅ working — needs **MANO** (license) |
+| 2 hand → MANO | `--hand hamer` | **HaMeR** (boxes from stage 1; depth-anchored into the metric frame; MANO params threaded through to the stage-7 optimizer) — with `configs/combined.yaml` also runs the **CHOIR isolated fit** (Eq 1) for a much cleaner coarse hand | ✅ working — needs **MANO** (license) |
 | 2 hand, MANO-free | `--hand depthlift` | hand box + MoGe depth → corresponded 3D grid | ✅ working (fallback, no license needed) |
 | 3 object shape | `--object sam3d` | **SAM-3D-Objects** textured mesh (sam3d env subprocess), metric-scaled from depth; fails soft to the model-free **depth-lift** convex hull | ✅ working |
 | 3 object 6D pose | `object_pose: render_compare` | silhouette tracker → differentiable render-and-compare (silhouette + photometric); alternatives: `silhouette`, `foundationpose`, `hand` | ✅ working |
@@ -210,7 +233,8 @@ hoi_recon/
                     SAM-3D, depth-lift, render-compare + joint-optimizer subprocess drivers
   viz/viser_app.py  interactive 4D HOI web viewer
   viz/reproject.py  reprojection-overlay validation videos
-configs/            new.yaml (VALIDATED differentiable pipeline) / default / egocentric / third_person
+configs/            combined.yaml (BEST: render-compare object + CHOIR hand) / new.yaml (prior
+                    validated baseline) / choir.yaml (CHOIR coarse, A/B only) / default / egocentric / third_person
 scripts/            setup_third_party.sh, setup_real.sh, download_checkpoints.sh, run_demo.sh, view_demo.sh
 scripts/subprocess_entries/  entry scripts run in the sam3d-objects env (sam3d_infer.py,
                     render_compare.py, joint_opt.py, vggt_geom.py, fp_track.py);
