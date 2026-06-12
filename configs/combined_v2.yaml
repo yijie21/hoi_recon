@@ -1,0 +1,19 @@
+# configs/combined_v2.yaml
+# Our best pipeline + CHOIR Stage-3 structure with our improvement toggles ON.
+# fine_preset resolves to hoi_recon.choir_fine.presets.COMBINED_V2 (faithful + hand_sil etc.).
+mock: false
+coarse: choir
+fine_preset: combined_v2
+backend:
+  hand: hamer
+  object: sam3d
+  depth: moge
+  object_pose: render_compare      # our stronger object tracker
+  sam3d_env: sam3d-objects
+optim:
+  differentiable: true
+contact:
+  dist_thresh_m: 0.02
+  normal_thresh_deg: 60.0
+smoothing:
+  window: 5

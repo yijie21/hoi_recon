@@ -1,0 +1,19 @@
+# configs/choir_faithful.yaml
+# Faithful CHOIR fine-stage baseline: combined coarse + CHOIR Stage-3 weights (locked).
+# fine_preset resolves to hoi_recon.choir_fine.presets.CHOIR_FAITHFUL.
+mock: false
+coarse: choir
+fine_preset: choir_faithful
+backend:
+  hand: hamer
+  object: sam3d
+  depth: moge
+  object_pose: choir_tracker
+  sam3d_env: sam3d-objects
+optim:
+  differentiable: true
+contact:
+  dist_thresh_m: 0.02
+  normal_thresh_deg: 60.0
+smoothing:
+  window: 5
