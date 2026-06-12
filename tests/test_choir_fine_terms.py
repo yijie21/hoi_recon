@@ -61,3 +61,40 @@ def test_terms_are_differentiable():
     loss = T.contact_loss(hand_c, anchors, torch.ones(1, 1, 1), torch.ones(1, 1))
     loss.backward()
     assert hand_c.grad is not None and torch.isfinite(hand_c.grad).all()
+
+
+def test_velocity_zero_for_constant():
+    x = torch.ones(5, 3)
+    assert float(T.velocity_loss(x)) == 0.0
+
+
+def test_velocity_positive_for_ramp():
+    x = torch.arange(5.0).reshape(5, 1).repeat(1, 3)   # linear ramp, step 1 each frame
+    assert float(T.velocity_loss(x)) == pytest.approx(1.0)   # all first-diffs are 1; mean=1
+
+
+def test_acceleration_zero_for_linear_ramp():
+    x = torch.arange(5.0).reshape(5, 1).repeat(1, 3)   # constant velocity -> zero accel
+    assert float(T.acceleration_loss(x)) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_acceleration_positive_for_curve():
+    x = (torch.arange(5.0) ** 2).reshape(5, 1)         # quadratic -> constant 2nd diff
+    assert float(T.acceleration_loss(x)) > 0.0
+
+
+def test_keypoint_reproj_zero_when_aligned():
+    K = torch.tensor([[100.0, 0, 50.0], [0, 100.0, 50.0], [0, 0, 1.0]])
+    joints = torch.tensor([[[0.0, 0.0, 1.0]]])         # projects to (cx,cy)=(50,50)
+    kp2d = torch.tensor([[[50.0, 50.0]]])
+    valid = torch.ones(1)
+    assert float(T.keypoint_reproj_loss(joints, kp2d, K, valid)) == pytest.approx(0.0)
+
+
+def test_keypoint_reproj_bounded_and_positive_when_off():
+    K = torch.tensor([[100.0, 0, 50.0], [0, 100.0, 50.0], [0, 0, 1.0]])
+    joints = torch.tensor([[[0.0, 0.0, 1.0]]])
+    kp2d = torch.tensor([[[80.0, 50.0]]])              # 30px off in u
+    valid = torch.ones(1)
+    v = float(T.keypoint_reproj_loss(joints, kp2d, K, valid))
+    assert 0.0 < v < 1.0                                # Geman-McClure is bounded in [0,1)
