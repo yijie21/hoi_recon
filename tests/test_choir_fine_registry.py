@@ -32,3 +32,8 @@ def test_assemble_is_differentiable():
     total = registry.assemble_energy({"a": 2.0}, {"a": x * x})
     total.backward()
     assert float(x.grad) == pytest.approx(12.0)        # d(2*x^2)/dx = 4x = 12
+
+
+def test_assemble_returns_zero_tensor_when_no_active_terms():
+    out = registry.assemble_energy({"a": 0.0}, {"a": torch.tensor(5.0, requires_grad=True)})
+    assert torch.is_tensor(out) and float(out) == 0.0

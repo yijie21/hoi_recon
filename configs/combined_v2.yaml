@@ -15,5 +15,6 @@ optim:
 contact:
   dist_thresh_m: 0.02
   normal_thresh_deg: 60.0
+  knn_k: 50
 smoothing:
   window: 5

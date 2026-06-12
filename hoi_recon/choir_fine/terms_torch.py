@@ -7,7 +7,7 @@ from __future__ import annotations
 import torch
 
 
-def contact_loss(hand_c, anchors, weights, confidence):
+def contact_loss(hand_c, anchors, weights, confidence) -> torch.Tensor:
     """CHOIR Eq 6 soft barycentric contact loss.
       hand_c:     (T,Nc,3) hand contact vertices
       anchors:    (T,Nc,K,3) object-surface anchor points (top-K per vertex)
@@ -20,7 +20,7 @@ def contact_loss(hand_c, anchors, weights, confidence):
     return (confidence * per_vert).sum() / confidence.sum().clamp(min=1e-8)
 
 
-def penetration_loss(hand_verts, nearest_surface, surface_normal, eps=0.005, clip=0.04):
+def penetration_loss(hand_verts, nearest_surface, surface_normal, eps=0.005, clip=0.04) -> torch.Tensor:
     """CHOIR Eq 23 one-sided non-penetration. Penalizes hand vertices inside the object
     beyond a tolerance eps, per-vertex residual clamped to `clip`. Normals are normalized
     internally so non-unit normals do not scale the depth.
@@ -30,19 +30,21 @@ def penetration_loss(hand_verts, nearest_surface, surface_normal, eps=0.005, cli
     return (signed - eps).clamp(min=0.0, max=clip).mean()
 
 
-def velocity_loss(x):
+def velocity_loss(x) -> torch.Tensor:
     """Mean squared first temporal difference. x: (T, ...). Smoothness on any per-frame
     quantity (MANO pose, object rotation/translation). CHOIR L_temp velocity terms."""
-    return ((x[1:] - x[:-1]) ** 2).mean()
+    d = x[1:] - x[:-1]
+    return d.pow(2).mean() if d.numel() > 0 else x.new_zeros(())
 
 
-def acceleration_loss(x):
+def acceleration_loss(x) -> torch.Tensor:
     """Mean squared second temporal difference. x: (T, ...). Kills residual jitter that
     velocity terms leave. CHOIR L_temp acceleration terms."""
-    return ((x[2:] - 2 * x[1:-1] + x[:-2]) ** 2).mean()
+    d = x[2:] - 2 * x[1:-1] + x[:-2]
+    return d.pow(2).mean() if d.numel() > 0 else x.new_zeros(())
 
 
-def keypoint_reproj_loss(joints_cam, kp2d, K, valid, sigma_px=60.0):
+def keypoint_reproj_loss(joints_cam, kp2d, K, valid, sigma_px=60.0) -> torch.Tensor:
     """Geman-McClure-robust 2D keypoint reprojection (CHOIR L^h_2D). Projects camera-frame
     joints with K and compares to kp2d; the robust kernel r2/(r2+sigma^2) is bounded in
     [0,1) so outlier joints can't dominate.
@@ -52,4 +54,6 @@ def keypoint_reproj_loss(joints_cam, kp2d, K, valid, sigma_px=60.0):
     v = K[1, 1] * joints_cam[..., 1] / z + K[1, 2]
     r2 = (u - kp2d[..., 0]) ** 2 + (v - kp2d[..., 1]) ** 2
     s2 = float(sigma_px) ** 2
-    return ((r2 / (r2 + s2)) * valid[:, None]).mean()
+    numer = (r2 / (r2 + s2)) * valid[:, None]              # (T,J), zero on invalid frames
+    denom = valid.sum().clamp(min=1e-8) * joints_cam.shape[1]   # valid_frames * J
+    return numer.sum() / denom

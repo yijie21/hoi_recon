@@ -98,3 +98,20 @@ def test_keypoint_reproj_bounded_and_positive_when_off():
     valid = torch.ones(1)
     v = float(T.keypoint_reproj_loss(joints, kp2d, K, valid))
     assert 0.0 < v < 1.0                                # Geman-McClure is bounded in [0,1)
+
+
+def test_velocity_single_frame_is_zero_not_nan():
+    assert float(T.velocity_loss(torch.ones(1, 3))) == 0.0
+
+
+def test_acceleration_two_frames_is_zero_not_nan():
+    assert float(T.acceleration_loss(torch.ones(2, 3))) == 0.0
+
+
+def test_keypoint_reproj_ignores_invalid_frames():
+    K = torch.tensor([[100., 0, 50.], [0, 100., 50.], [0, 0, 1.]])
+    joints = torch.tensor([[[0., 0., 1.]], [[0., 0., 1.]]])   # (T=2,J=1,3)
+    kp2d = torch.tensor([[[80., 50.]], [[999., 999.]]])        # frame1 huge err but invalid
+    valid = torch.tensor([1.0, 0.0])
+    # only frame0 counts: 900/4500 = 0.2, normalized by valid_frames(1)*J(1)
+    assert float(T.keypoint_reproj_loss(joints, kp2d, K, valid)) == pytest.approx(0.2)
