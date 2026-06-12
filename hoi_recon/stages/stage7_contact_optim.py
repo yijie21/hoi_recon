@@ -108,7 +108,23 @@ def run(ctx) -> Bundle:
     T, Nh = poses0.shape[0], hand_verts.shape[1]
 
     differentiable = (o.get("differentiable", False) if hasattr(o, "get") else False)
-    if not cfg.mock and differentiable and s6.get("obj_colors") is not None:
+    fine_preset = cfg.get("fine_preset") if hasattr(cfg, "get") else None
+    if not cfg.mock and fine_preset and s6.get("obj_colors") is not None:
+        import os as _os
+        from ..backends.real_perception import run_choir_fine_optimizer, list_frames
+        s0 = ctx.load("stage0_preprocess"); s1 = ctx.load("stage1_detect_track"); s2 = ctx.load("stage2_hand")
+        frame_paths = list_frames(s0.assets["frames_dir"])
+        mdir = s1.assets["masks_dir"]
+        mask_paths = [(_os.path.join(mdir, f"{i:05d}.npy")
+                       if _os.path.exists(_os.path.join(mdir, f"{i:05d}.npy")) else None)
+                      for i in range(T)]
+        hand_verts, hj, poses = run_choir_fine_optimizer(cfg, ctx.stage_dir(NAME), s2, s6,
+                                                         frame_paths, mask_paths, s0["intrinsics"])
+        hand_joints = hj if hj is not None else s6["hand_joints"]
+        hand_c = hand_verts[:, contact_idx]
+        d = poses[:, :3, 3] - poses0[:, :3, 3]
+        log(f"CHOIR Stage-3 optimizer (preset '{fine_preset}') applied")
+    elif not cfg.mock and differentiable and s6.get("obj_colors") is not None:
         # real + differentiable: full joint MANO-articulation + object render-and-
         # compare optimizer (PyTorch3D, sam3d env). Fingers actually curl to grasp.
         import os as _os
