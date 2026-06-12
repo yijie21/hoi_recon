@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from hoi_recon.choir_fine import metrics
 
 
@@ -14,7 +15,7 @@ def test_contact_gap_is_distance():
     hand_c = np.zeros((1, 1, 3))
     surf = np.full((1, 1, 3), 0.0); surf[0, 0, 2] = 0.05    # 5cm away
     assert metrics.contact_gap(hand_c, surf, np.array([True])) == \
-        __import__("pytest").approx(0.05)
+        pytest.approx(0.05)
 
 
 def test_contact_gap_nan_when_no_contact_frames():
@@ -28,7 +29,7 @@ def test_penetration_positive_inside():
     surf = np.array([[[0.0, 0.0, 0.0]]])               # nearest surface point
     nrm = np.array([[[0.0, 0.0, 1.0]]])                # outward normal +z
     pen = metrics.penetration_depth(hand, surf, nrm)
-    assert pen == __import__("pytest").approx(0.01, abs=1e-6)
+    assert pen == pytest.approx(0.01, abs=1e-6)
 
 
 def test_penetration_zero_outside():

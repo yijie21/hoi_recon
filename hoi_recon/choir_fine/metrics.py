@@ -18,6 +18,8 @@ def contact_gap(hand_contact, obj_surface, contact_present):
     contact_present = np.asarray(contact_present, bool)
     gaps = []
     for t in np.where(contact_present)[0]:
+        if obj_surface[t].shape[0] == 0:
+            continue
         d, _ = cKDTree(obj_surface[t]).query(hand_contact[t], k=1)
         gaps.append(float(np.mean(d)))
     return float(np.median(gaps)) if gaps else float("nan")
@@ -27,9 +29,11 @@ def penetration_depth(hand_verts, nearest_surface, surface_normal):
     """hand_verts: (T,Nh,3). nearest_surface/surface_normal: (T,Nh,3) the nearest object
     surface point and its outward normal for each hand vertex. Returns summed one-sided
     penetration: sum of max(0, (surface - hand) . normal) over all vertices/frames
-    (positive when the hand vertex is inside the object)."""
+    (positive when the hand vertex is inside the object). Normals are normalized internally
+    so non-unit normals do not scale the depth."""
     hand_verts = np.asarray(hand_verts, float)
     nearest_surface = np.asarray(nearest_surface, float)
     surface_normal = np.asarray(surface_normal, float)
-    signed = ((nearest_surface - hand_verts) * surface_normal).sum(-1)   # >0 => inside
+    n = surface_normal / (np.linalg.norm(surface_normal, axis=-1, keepdims=True) + 1e-12)
+    signed = ((nearest_surface - hand_verts) * n).sum(-1)                # >0 => inside
     return float(np.clip(signed, 0.0, None).sum())

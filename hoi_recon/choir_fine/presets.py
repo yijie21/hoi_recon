@@ -34,8 +34,8 @@ LRS_FAITHFUL = {"object": 3e-4, "finger": 5e-4, "wrist": 5e-5}
 ITERS_FAITHFUL = 800
 
 # contact-cache rebuild + anchor-build constants (CHOIR §7.3 / §7.2)
-CONTACT_CACHE = {"dist_m": 0.05, "normal_deg": 60.0, "topk": 8, "softmax_sigma": 0.01}
-ANCHOR_BUILD = {"n_surface": 10000, "knn": 50, "dist_m": 0.02, "normal_deg": 60.0}
+CONTACT_CACHE = {"dist_thresh": 0.05, "normal_deg": 60.0, "topk": 8, "softmax_sigma": 0.01}
+ANCHOR_BUILD = {"n_surface": 10000, "knn": 50, "dist_thresh": 0.02, "normal_deg": 60.0}
 
 # combined_v2 = faithful + our improvement toggles (each independently overridable)
 COMBINED_V2 = {**copy.deepcopy(CHOIR_FAITHFUL), "hand_sil": 1.0}

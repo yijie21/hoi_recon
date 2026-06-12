@@ -13,7 +13,13 @@ BEND_AXIS = 2          # axis-angle component that finger flexion lives on (MANO
 
 def anatomical_loss(hand_pose):
     """hand_pose: (...,15,3) or (...,45) axis-angle. Returns a scalar tensor."""
-    aa = hand_pose.reshape(*hand_pose.shape[:-1], 15, 3) if hand_pose.shape[-1] == 45 \
-        else hand_pose.reshape(-1, 15, 3) if hand_pose.dim() == 1 else hand_pose
+    if hand_pose.shape[-1] == 45:
+        aa = hand_pose.reshape(*hand_pose.shape[:-1], 15, 3)
+    elif hand_pose.shape[-1] == 3:
+        aa = hand_pose
+    else:
+        raise ValueError(
+            f"hand_pose last dim must be 45 (flat AA) or 3 ((...,15,3)); "
+            f"got {tuple(hand_pose.shape)}")
     off = [i for i in range(3) if i != BEND_AXIS]      # twist + splay axes
     return (aa[..., off] ** 2).mean()

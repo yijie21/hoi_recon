@@ -16,7 +16,9 @@ def build_correspondences(hand_pts, mesh, *, n_surface=10000, knn=50, topk=8,
     """hand_pts: (Nh,3). mesh: trimesh.Trimesh (object, current frame, world coords).
     Returns dict of arrays indexed [hand_vertex, k]:
       face_id (Nh,topk) int (-1 where invalid), bary (Nh,topk,3), anchor (Nh,topk,3),
-      weight (Nh,topk) softmax over kept anchors (0 where invalid), valid (Nh,) bool."""
+      weight (Nh,topk) softmax over kept anchors (0 where invalid), valid (Nh,) bool.
+    Anchor weights are softmax(-d^2 / softmax_sigma) over the kept anchors, so
+    softmax_sigma is a bandwidth (variance-scale), NOT a standard deviation; CHOIR uses 0.01."""
     hand_pts = np.asarray(hand_pts, float)
     Nh = len(hand_pts)
     pts, face_idx = trimesh.sample.sample_surface(mesh, n_surface, seed=seed)

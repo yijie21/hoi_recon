@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import trimesh
 from hoi_recon.choir_fine import contact
 
@@ -22,7 +23,7 @@ def test_near_point_gets_valid_correspondence():
     out = contact.build_correspondences(hand, m, dist_thresh=0.02, topk=8, seed=0)
     assert out["valid"][0]
     assert out["weight"][0].sum() == \
-        __import__("pytest").approx(1.0, abs=1e-5)   # softmax weights normalized
+        pytest.approx(1.0, abs=1e-5)   # softmax weights normalized
     # anchors lie on the surface (z ~ 0)
     anchors = out["anchor"][0][out["weight"][0] > 0]
     assert np.abs(anchors[:, 2]).max() < 1e-6
@@ -56,3 +57,12 @@ def test_bary_reconstructs_anchor():
     bary = out["bary"][0, k]
     recon = (m.triangles[fid] * bary[:, None]).sum(0)
     assert np.allclose(recon, out["anchor"][0, k], atol=1e-5)
+
+
+def test_anchor_build_constants_are_valid_kwargs():
+    """presets.ANCHOR_BUILD must be directly usable as build_correspondences kwargs."""
+    from hoi_recon.choir_fine import presets
+    m = _sphere_mesh()
+    hand = np.array([[0.105, 0.0, 0.0]])
+    out = contact.build_correspondences(hand, m, **presets.ANCHOR_BUILD)  # must not raise
+    assert out["valid"][0]
