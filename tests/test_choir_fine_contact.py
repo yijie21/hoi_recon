@@ -10,6 +10,12 @@ def _quad_mesh():
     return trimesh.Trimesh(v, f, process=False)
 
 
+def _sphere_mesh():
+    """An icosphere radius 0.1 at the origin, outward normals — a hand point just
+    outside along a radius passes the faithful 60° normal gate (curved surface)."""
+    return trimesh.creation.icosphere(subdivisions=3, radius=0.1)
+
+
 def test_near_point_gets_valid_correspondence():
     m = _quad_mesh()
     hand = np.array([[0.0, 0.0, 0.01]])              # 1cm above the surface
@@ -39,10 +45,11 @@ def test_wrong_side_normal_gate_rejects():
 
 
 def test_bary_reconstructs_anchor():
-    """face_id + barycentric must reconstruct the stored anchor point."""
-    m = _quad_mesh()
-    hand = np.array([[0.3, -0.2, 0.005]])
-    out = contact.build_correspondences(hand, m, dist_thresh=0.05, topk=4, normal_deg=89.0, seed=0)  # permissive gate: near-flat surface makes nearest samples near-tangent
+    """face_id + barycentric must reconstruct the stored anchor, using the FAITHFUL
+    60° normal-gate default (sphere fixture so the gate fires correctly)."""
+    m = _sphere_mesh()
+    hand = np.array([[0.105, 0.0, 0.0]])             # 5mm outside the sphere along +x
+    out = contact.build_correspondences(hand, m, dist_thresh=0.02, topk=4, seed=0)
     assert out["valid"][0]
     k = int(np.argmax(out["weight"][0]))
     fid = out["face_id"][0, k]
