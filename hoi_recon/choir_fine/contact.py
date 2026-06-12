@@ -12,7 +12,7 @@ from scipy.spatial import cKDTree
 
 
 def build_correspondences(hand_pts, mesh, *, n_surface=10000, knn=50, topk=8,
-                          dist_thresh=0.02, normal_deg=89.0, softmax_sigma=0.01, seed=0):
+                          dist_thresh=0.02, normal_deg=60.0, softmax_sigma=0.01, seed=0):
     """hand_pts: (Nh,3). mesh: trimesh.Trimesh (object, current frame, world coords).
     Returns dict of arrays indexed [hand_vertex, k]:
       face_id (Nh,topk) int (-1 where invalid), bary (Nh,topk,3), anchor (Nh,topk,3),
