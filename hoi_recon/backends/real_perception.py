@@ -455,6 +455,66 @@ def run_joint_optimizer(cfg, run_dir, s2, s6, frame_paths, mask_paths, K):
     return d["hand_verts"], hj, d["obj_poses"]
 
 
+def run_choir_fine_optimizer(cfg, run_dir, s2, s6, frame_paths, mask_paths, K):
+    """CHOIR-faithful / combined_v2 Stage-3 optimizer (registry-based). Writes the named
+    preset's weights as JSON, runs choir_fine_opt.py in the sam3d env with PYTHONPATH set to
+    this repo (so it imports the tested hoi_recon.choir_fine library), and returns
+    (hand_verts[T,778,3], hand_joints[T,21,3] or None, obj_poses[T,4,4]). Cached."""
+    import subprocess, json
+    from ..logging_utils import log
+    from ..choir_fine import presets
+    from ..config import _REPO_ROOT
+    if s2.get("mano_pose") is None:
+        raise BackendNotAvailable("CHOIR Stage-3 needs MANO params (re-run stage 2)")
+    repo = require_repo(cfg.paths.third_party, "sam-3d-objects", "")
+    mano_dir = _resolve_mano_dir(cfg.paths.checkpoints)
+    jo_dir = os.path.join(run_dir, "choir_fine"); os.makedirs(jo_dir, exist_ok=True)
+    out_npz = os.path.join(jo_dir, "out.npz")
+    preset_name = cfg.get("fine_preset", "choir_faithful")
+    if not os.path.exists(out_npz):
+        hnpz = os.path.join(jo_dir, "hand.npz")
+        hand_side = s2.get("hand_side")
+        if hand_side is None:
+            hand_side = np.ones(len(s2["verts"]), np.int64)
+        np.savez(hnpz, mano_global=s2["mano_global"], mano_pose=s2["mano_pose"],
+                 mano_betas=s2["mano_betas"], verts=s2["verts"], joints=s2["joints"],
+                 contact_idx=s2["contact_idx"], hand_faces=s2["hand_faces"],
+                 hand_side=hand_side, kp2d=s2.get("kp2d", np.zeros((len(s2["verts"]), 21, 2))))
+        onpz = os.path.join(jo_dir, "obj.npz")
+        np.savez(onpz, verts=np.asarray(s6["obj_verts"]), faces=s6["obj_faces"],
+                 vertex_colors=s6["obj_colors"], poses=s6["obj_poses"])
+        wjson = os.path.join(jo_dir, "weights.json")
+        json.dump({k: float(v) for k, v in presets.get_preset(preset_name).items()},
+                  open(wjson, "w"))
+        Kp = os.path.join(jo_dir, "K.npy"); np.save(Kp, np.asarray(K))
+        env_name = (cfg.backend.get("sam3d_env", "sam3d-objects")
+                    if hasattr(cfg.backend, "get") else "sam3d-objects")
+        conda = os.environ.get("CONDA_EXE", "conda")
+        masks_dir = os.path.dirname(os.path.abspath(
+            mask_paths[next(i for i, p in enumerate(mask_paths) if p)]))
+        frames_dir = os.path.dirname(os.path.abspath(frame_paths[0]))
+        occl = _hand_occluder_dir(run_dir)
+        cmd = [conda, "run", "--no-capture-output", "-n", env_name, "python",
+               os.path.join(repo, "choir_fine_opt.py"), "--hand", os.path.abspath(hnpz),
+               "--obj", os.path.abspath(onpz), "--frames_dir", frames_dir,
+               "--masks_dir", masks_dir, "--K", os.path.abspath(Kp),
+               "--mano_dir", mano_dir, "--out", os.path.abspath(out_npz),
+               "--weights", os.path.abspath(wjson), "--iters", "800"]
+        if occl:
+            cmd += ["--occluder_dir", occl]
+        env = {**os.environ, "PYTHONPATH": _REPO_ROOT
+               + (os.pathsep + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else "")}
+        log(f"CHOIR Stage-3 optimizer (preset '{preset_name}', env '{env_name}')...")
+        r = subprocess.run(cmd, cwd=repo, env=env)
+        if r.returncode != 0 or not os.path.exists(out_npz):
+            raise BackendNotAvailable(f"CHOIR Stage-3 optimizer failed (exit {r.returncode}).")
+    else:
+        log(f"CHOIR Stage-3 optimizer: reusing cached {out_npz}")
+    d = np.load(out_npz)
+    hj = d["hand_joints"] if "hand_joints" in d.files else None
+    return d["hand_verts"], hj, d["obj_poses"]
+
+
 def run_object_pose_render_compare(cfg, run_dir, frame_paths, mask_paths, K,
                                    verts, faces, colors, init_poses):
     """Differentiable render-and-compare object 6D refinement (PyTorch3D, sam3d env).
