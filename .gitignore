@@ -19,3 +19,4 @@ data/
 .ipynb_checkpoints/
 wget-log
 *.log
+.superpowers/

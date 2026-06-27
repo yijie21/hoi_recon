@@ -1,6 +1,5 @@
 """Stage 0 (§2.1): egocentric RGB-D observation stream + GT passthrough (mock)."""
 from __future__ import annotations
-import numpy as np
 from ..bundle import Bundle
 from ..core.mock_scene import generate_ego_hoi
 
