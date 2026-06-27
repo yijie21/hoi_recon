@@ -39,3 +39,16 @@ Every value the paper leaves unspecified, with the section it fills and the sour
 - App B defines no field architecture / ray sampling / loss equations (`L_surf,L_free,L_occ,L_rgb,L_eik`) / weights —
   all deferred to the real backend; SP1 mock uses tracked geometry as the coarse mesh and implements only the
   specified rigid+scale SAM3D→coarse alignment (Umeyama). (Task 10)
+
+## Stage 5 (ego-motion compensation, §2.1.4)
+- **Table-frame definition**: §2.1.4 names a fixed "table frame" but gives no calibration procedure.
+  Mock uses the GT `table_T` (a single fixed SE3 sampled at scene-generation time) directly.
+  Real path would use ORB-SLAM3 world-frame + a tabletop plane-fit to obtain `table_T`; that backend
+  raises `NotImplementedError`. (Task 12)
+- **SLAM hand-pixel down-weighting**: paper mentions down-weighting hand pixels in SLAM
+  (§2.1.4) — specifics unspecified; deferred to real ORB-SLAM3 backend. (Task 12)
+- **Smoothing window**: §2.1.4 specifies "light temporal smoothing" but gives no window size.
+  Mock uses a causal-padded moving-average of `cfg.ego.smooth_window` (default 5 frames) applied
+  to hand vertices, hand joints, and object translation; object rotation is not smoothed. (Task 12)
+- **No table/vertical constraint on the object**: the object pose in the table frame is the raw
+  `w2t @ pose_w`; no additional table-plane projection or vertical constraint is imposed. (Task 12)
