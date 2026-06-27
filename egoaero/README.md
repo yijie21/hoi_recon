@@ -18,7 +18,7 @@ The 8-stage pipeline follows the paper's section structure and Appendices A–C.
 
 ---
 
-## The 8 stages
+## The 9 stages
 
 | # | Name | Faithful to paper | Notes |
 |---|------|-------------------|-------|
@@ -30,6 +30,7 @@ The 8-stage pipeline follows the paper's section structure and Appendices A–C.
 | 5 | `stage5_ego_comp` | ✅ documented-default | Ego-motion compensation to table frame + temporal smoothing (§2.1.4) |
 | 6 | `stage6_contact` | ✅ **faithful** | Adaptive contact optimisation (App C): App C constants verbatim, three-region iterative push-back |
 | 7 | `stage7_eval` | ✅ | Before/after penetration, contact-gap, hand-jitter report |
+| 8 | `stage8_quality` | ✅ documented-default | Online quality assessment (App E): accept / repairable_accept / recapture verdict |
 
 "Documented-default" means the paper specifies the algorithm structure but omits
 numeric constants or hyperparameters; values used are logged in [`ASSUMPTIONS.md`](ASSUMPTIONS.md).
@@ -50,9 +51,37 @@ python -m egoaero.cli --out runs/demo3 --mock --set num_frames=32 seed=42
 ```
 
 Results land in `runs/<name>/`:
-- `stage0_ego_io/`, `stage1_semantic/`, … `stage7_eval/` — per-stage bundles
+- `stage0_ego_io/`, `stage1_semantic/`, … `stage8_quality/` — per-stage bundles
+- `quality.json` — online quality assessment verdict (see below)
 - `contract/` — workbench contract output (see below)
 - `config.yaml` — frozen run config
+
+---
+
+## Online quality assessment
+
+Stage 8 (`stage8_quality`) scores the reconstructed clip according to **App E** of the EgoAERO paper and emits one of three verdicts:
+
+| Decision | Meaning |
+|----------|---------|
+| `accept` | Q ≥ 0.6 — reconstruction quality meets the bar |
+| `repairable_accept` | 0.3 ≤ Q < 0.6 — quality marginal; recoverability suggests it can be improved |
+| `recapture` | Q < 0.3 or global failure — quality too low; re-capture recommended |
+
+The overall score `Q = exp(-α R_after - β B_repair - γ U_unresolved)` combines residual
+penetration/gap (`R_after`), finger correction budget used (`B_repair`), and fraction of
+unresolved frames (`U_unresolved`).
+
+Results are written to `quality.json` in the run directory (alongside `contract/`).
+The stage is supplementary — the 4D-HOI contract output is unchanged regardless of verdict.
+
+**Note:** on the synthetic mock clip, the high procedural penetration yields a lower Q score
+(`repairable_accept` or `recapture` is expected — not `accept`). This is an honest reflection
+of the mock scene, not a defect.
+
+All threshold defaults (`eps_g_m`, `eps_delta_m`, `q_accept`, `q_repairable`,
+`obj_move_thresh_m_per_frame`, etc.) are documented in [`ASSUMPTIONS.md`](ASSUMPTIONS.md) under
+"SP3 — Online quality assessment".
 
 ---
 
@@ -100,7 +129,7 @@ Full MPJPE and contact-F1 require real GT annotations (planned for SP3 — see r
 | Sprint | Topic | Status |
 |--------|-------|--------|
 | SP2 | RL contact policy (real App C backend, learned push-back) | Planned |
-| SP3 | Quality assessment (MPJPE, contact-F1, dataset eval) | Planned |
+| SP3 | Online quality assessment (App E accept/repairable/recapture) | Done |
 | SP4 | Dataset integration (Ego4D, EPIC-Kitchens egocentric clips) | Planned |
 
 ---

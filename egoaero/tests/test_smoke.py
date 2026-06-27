@@ -37,3 +37,14 @@ def test_end_to_end_mock_smoke(tmp_path):
     assert contract.validate(str(tmp_path / "run")), (
         "contract.validate() returned False — one or more required output files missing"
     )
+
+
+def test_smoke_quality_verdict(tmp_path):
+    from egoaero import config
+    from egoaero.pipeline import run_pipeline
+    cfg = config.load_config(overrides={"num_frames": 24, "seed": 0})
+    ctx = run_pipeline(cfg, str(tmp_path / "run"), stages="all")
+    q = ctx.load("stage8_quality").meta["quality"]
+    assert q["decision"] in ("accept", "repairable_accept", "recapture")
+    assert 0.0 < q["Q"] <= 1.0
+    assert "thumb" in q["per_finger"]
