@@ -93,3 +93,109 @@ def select_opposing_finger(hand_verts, finger_idx, obj_pts):
         if m < bestd:
             bestd, best = m, fmap_key
     return best
+
+
+def triangular_smooth(deltas, window, boundary_frames):
+    """Finite-window triangular kernel smoothing + boundary taper (App C)."""
+    T = deltas.shape[0]; half = window // 2
+    k = np.array([half + 1 - abs(i - half) for i in range(window)], float)
+    k = k / k.sum()
+    out = np.zeros_like(deltas)
+    for c in range(deltas.shape[1]):
+        out[:, c] = np.convolve(np.pad(deltas[:, c], half, mode="edge"), k, "valid")[:T]
+    b = boundary_frames
+    if b > 0 and T > 0:                                  # taper at active-segment ends
+        taper = np.ones(T)
+        ramp = np.linspace(0, 1, min(b, T))
+        taper[:len(ramp)] = ramp; taper[-len(ramp):] = ramp[::-1]
+        out = out * taper[:, None]
+    return out
+
+
+def penetration_pushback(points, s, normals, eps, max_pb):
+    """App C: penetrating set s<-eps; push-back along normals, clipped."""
+    pen = s < -eps
+    if pen.sum() == 0:
+        return np.zeros(3)
+    depth = np.maximum(-eps - s[pen], 0.0)
+    r = np.mean(normals[pen] * depth[:, None], axis=0)
+    norm = np.linalg.norm(r)
+    return r if norm <= max_pb or norm < 1e-12 else r * (max_pb / norm)
+
+
+def _obj_world(obj_verts, obj_faces, pose):
+    ow = transform_points(obj_verts, pose)
+    return ow, vertex_normals(ow, obj_faces)
+
+
+def run(ctx) -> Bundle:
+    cfg = ctx.cfg; cc = cfg.contact
+    s5 = ctx.load("stage5_ego_comp")
+    hv = s5["hand_verts_t"].copy(); hj = s5["hand_joints_t"].copy()
+    obj_poses = s5["obj_poses_t"]; ov = s5["obj_verts"]; of = s5["obj_faces"].astype(int)
+    fidx = {k: np.asarray(v, int) for k, v in s5.meta["finger_idx"].items()}
+    labels = s5.meta["stage_labels"]; T = hv.shape[0]
+    win = active_window(labels)
+
+    def pen_gap(vh):
+        pens, gaps = [], []
+        for i in range(T):
+            ow, on = _obj_world(ov, of, obj_poses[i])
+            s, _ = signed_distance(vh[i], ow, on)
+            pens.append(np.maximum(-s, 0).sum())
+            pad = H.fingertip_pad_idx(fidx, "thumb")
+            gaps.append(np.median(np.abs(s[pad])) if len(pad) else 0.0)
+        return float(np.mean(pens) * 1000), float(np.median(gaps) * 1000)
+
+    pen_b, gap_b = pen_gap(hv)
+    raw_delta = np.zeros((T, 3))
+    for i in win:
+        ow, on = _obj_world(ov, of, obj_poses[i])
+        thumb = H.fingertip_pad_idx(fidx, "thumb")
+        opp_f = select_opposing_finger(hv[i], fidx, ow)
+        opp = H.fingertip_pad_idx(fidx, opp_f)
+        huk = H.thenar_idx(fidx)
+        regions, s_list, n_list, gaps, weights = [], [], [], [], []
+        for pts_idx, g, w in [(thumb, cc.contact_gap_m, cc.region_weights["thumb"]),
+                              (opp, cc.opp_gap_m, cc.region_weights["opp"]),
+                              (huk, cc.thenar_gap_m, cc.region_weights["hukou"])]:
+            if len(pts_idx) == 0:
+                continue
+            s, nn = signed_distance(hv[i][pts_idx], ow, on)
+            regions.append(hv[i][pts_idx]); s_list.append(s); n_list.append(nn)
+            gaps.append(g); weights.append(w)
+        raw_delta[i] = whole_hand_translation(regions, s_list, n_list, gaps, weights,
+                                              cc.max_global_trans_m)
+    delta = triangular_smooth(raw_delta, cc.smooth_window, cc.boundary_frames)
+    for i in range(T):
+        hv[i] += delta[i]; hj[i] += delta[i]
+
+    # local finger correction (thumb) weighted by finger chain
+    for i in win:
+        ow, on = _obj_world(ov, of, obj_poses[i])
+        for f, g in [("thumb", cc.contact_gap_m)]:
+            pad = H.fingertip_pad_idx(fidx, f)
+            if len(pad) == 0:
+                continue
+            s, nn = signed_distance(hv[i][pad], ow, on)
+            off = np.mean(-nn * np.maximum(s - g, 0)[:, None], axis=0)
+            off = np.clip(off, -cc.max_finger_disp_m, cc.max_finger_disp_m)
+            w = H.finger_chain_weights(hv[i], fidx, f)
+            hv[i] += w[:, None] * off
+        # penetration push-back (whole hand)
+        s_all, n_all = signed_distance(hv[i], ow, on)
+        r = penetration_pushback(hv[i], s_all, n_all, cc.pen_eps_m, cc.max_pushback_m)
+        hv[i] += r; hj[i] += r
+
+    pen_a, gap_a = pen_gap(hv)
+    # contact mask: hand verts within contact gap of the object surface
+    cmask = np.zeros((T, hv.shape[1]), bool)
+    for i in range(T):
+        ow, on = _obj_world(ov, of, obj_poses[i])
+        s, _ = signed_distance(hv[i], ow, on)
+        cmask[i] = np.abs(s) < (cc.contact_gap_m * 4)
+    return Bundle(arrays={"hand_verts_t": hv, "hand_joints_t": hj, "contact_mask": cmask,
+                          "obj_poses_t": obj_poses, "obj_verts": ov, "obj_faces": of},
+                  meta={"pen_before_mm": pen_b, "pen_after_mm": pen_a,
+                        "gap_before_mm": gap_b, "gap_after_mm": gap_a,
+                        "finger_idx": s5.meta["finger_idx"], "stage_labels": labels})

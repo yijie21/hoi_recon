@@ -52,3 +52,21 @@ Every value the paper leaves unspecified, with the section it fills and the sour
   to hand vertices, hand joints, and object translation; object rotation is not smoothed. (Task 12)
 - **No table/vertical constraint on the object**: the object pose in the table frame is the raw
   `w2t @ pose_w`; no additional table-plane projection or vertical constraint is imposed. (Task 12)
+
+## Stage 6 (contact optimization, App C)
+
+- **Region weights** `w_k` (thumb 1.0, opp 1.0, hukou 0.5): App C names three contact regions
+  (thumb pad, opposing finger, thenar/hukou) but gives no relative importance weights.
+  Documented defaults used; paper specifies only the gap thresholds and displacement bounds. (Task 14)
+- **Opposing-finger gap** `g_opp = 0.5 mm`: App C gives the thumb gap (0.5 mm) and thenar gap
+  (1.8 mm) explicitly; the opposing-finger gap is not stated. Matches the thumb gap as a
+  documented default. (Task 13–14)
+- **Penetration threshold** `ε = 2 mm` (`pen_eps_m`): App C defines the penetration push-back
+  but gives no explicit ε value.  Documented default: 2 mm. (Task 14)
+- **Finger-chain weight profile** `α_i^f`: App C specifies distal-heavy weighting along the
+  MANO finger chain but gives no explicit exponent or profile shape.  Implemented as a linear
+  ramp from palm (0) to fingertip (1) using the normalised along-finger coordinate (`z[fi]^1.0`).
+  (Task 14)
+- **App C constants used verbatim**: `contact_gap_m 0.0005`, `thenar_gap_m 0.0018`,
+  `max_global_trans_m 0.034`, `max_finger_disp_m 0.015`, `max_pushback_m 0.008`,
+  `smooth_window 9`, `boundary_frames 6`. (Task 14)
