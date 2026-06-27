@@ -63,6 +63,8 @@ Every value the paper leaves unspecified, with the section it fills and the sour
   documented default. (Task 13–14)
 - **Penetration threshold** `ε = 2 mm` (`pen_eps_m`): App C defines the penetration push-back
   but gives no explicit ε value.  Documented default: 2 mm. (Task 14)
+- **Contact-mask radius factor** `contact_mask_radius_factor = 4.0`: paper does not specify the
+  contact-mask zone width; documented default zone is 4× the contact gap. (Task 14)
 - **Finger-chain weight profile** `α_i^f`: App C specifies distal-heavy weighting along the
   MANO finger chain but gives no explicit exponent or profile shape.  Implemented as a linear
   ramp from palm (0) to fingertip (1) using the normalised along-finger coordinate (`z[fi]^1.0`).

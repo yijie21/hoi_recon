@@ -193,7 +193,7 @@ def run(ctx) -> Bundle:
     for i in range(T):
         ow, on = _obj_world(ov, of, obj_poses[i])
         s, _ = signed_distance(hv[i], ow, on)
-        cmask[i] = np.abs(s) < (cc.contact_gap_m * 4)
+        cmask[i] = np.abs(s) < (cc.contact_gap_m * cc.contact_mask_radius_factor)
     return Bundle(arrays={"hand_verts_t": hv, "hand_joints_t": hj, "contact_mask": cmask,
                           "obj_poses_t": obj_poses, "obj_verts": ov, "obj_faces": of},
                   meta={"pen_before_mm": pen_b, "pen_after_mm": pen_a,

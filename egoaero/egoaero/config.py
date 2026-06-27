@@ -51,6 +51,7 @@ _DEFAULTS: Dict[str, Any] = {
         "smooth_window": 9,
         "boundary_frames": 6,
         "pen_eps_m": 0.002,           # DOCUMENTED penetration threshold default
+        "contact_mask_radius_factor": 4.0,  # DOCUMENTED default: contact-mask zone = factor * contact_gap
         "region_weights": {"thumb": 1.0, "opp": 1.0, "hukou": 0.5},  # DOCUMENTED
         "rotation_enabled": False,    # whole-hand rotation disabled (0 deg)
     },
