@@ -92,6 +92,8 @@ def load_config(yaml_path: str | None = None, overrides: dict | None = None) -> 
     return Config(cfg)
 
 def save_config(cfg: Config, path: str) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
     with open(path, "w") as f:
         yaml.safe_dump(dict(cfg), f, sort_keys=False)

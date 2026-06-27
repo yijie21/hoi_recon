@@ -1,4 +1,3 @@
-import os
 from egoaero import config
 
 def test_defaults_and_override():
