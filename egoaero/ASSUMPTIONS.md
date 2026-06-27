@@ -34,3 +34,8 @@ Every value the paper leaves unspecified, with the section it fills and the sour
   −3.05 per iter).
 - **Metric naming**: `track_err_deg_before` / `track_err_deg_after` store centroid-distance in **mm**, not degrees.
   The `_deg_` suffix is kept verbatim because Task 18's smoke test references those exact key names.  (Task 9)
+
+## Stage 3 (coarse-to-fine mesh, §2.1.2 / App B)
+- App B defines no field architecture / ray sampling / loss equations (`L_surf,L_free,L_occ,L_rgb,L_eik`) / weights —
+  all deferred to the real backend; SP1 mock uses tracked geometry as the coarse mesh and implements only the
+  specified rigid+scale SAM3D→coarse alignment (Umeyama). (Task 10)
