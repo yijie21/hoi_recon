@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "egoaero"
+version = "0.1.0"
+description = "EgoAERO Part A — egocentric hand-object reconstruction (Sec 2.1)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "pyyaml",
+    "trimesh",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["egoaero*"]

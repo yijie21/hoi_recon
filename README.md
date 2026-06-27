@@ -13,7 +13,7 @@ across methods.
 | Method | Status | What it is |
 |---|---|---|
 | [`render_and_compare/`](render_and_compare/) | ✅ runnable | Compositional, CHOIR-derived pipeline (arXiv:2605.20992): coarse contact-agnostic init → spatial rectification → contact-aware joint optimization, with render-and-compare object pose tracking. Runs end-to-end today in `mock` mode (no weights). See its [README](render_and_compare/README.md). |
-| _(your next method)_ | — | Add a sibling folder following the contract below. |
+| [`egoaero/`](egoaero/) | 🟡 recon (Part A) runnable in mock | EgoAERO asset-free egocentric hand-object reconstruction (Sec 2.1). Faithful adaptive contact optimization; tracking/field via documented defaults + mock. RL/dataset (SP2/4) planned. See [README](egoaero/README.md). |
 
 ## Method contract
 
