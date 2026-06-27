@@ -83,3 +83,35 @@ def unresolved_ratio(gap_after, delta, object_moving, eps_g, eps_delta):
         if not any_rec:
             unresolved += 1
     return float(unresolved / moving.sum())
+
+
+def quality_score(R_after, B_repair, U_unresolved, alpha, beta, gamma):
+    """Q = exp(-alpha*R_after - beta*B_repair - gamma*U_unresolved) in (0, 1]."""
+    return float(np.exp(-(alpha * R_after + beta * B_repair + gamma * U_unresolved)))
+
+
+def decision(Q, per_finger_Q_rec, q_accept, q_repairable):
+    """Map Q to a collection decision + failure attribution.
+
+    Args:
+        Q: quality score in (0, 1]
+        per_finger_Q_rec: dict {finger_name: recoverability_score}
+        q_accept: threshold for "accept" decision (Q >= q_accept)
+        q_repairable: threshold for "repairable_accept" decision (Q >= q_repairable)
+
+    Returns:
+        (label, failure_attribution) where:
+        - label: one of {"accept", "repairable_accept", "recapture"}
+        - failure_attribution: dict with keys:
+            - "low_recoverability_fingers": list of fingers with Q_rec < 0.5
+            - "Q": the quality score
+    """
+    if Q >= q_accept:
+        label = "accept"
+    elif Q >= q_repairable:
+        label = "repairable_accept"
+    else:
+        label = "recapture"
+
+    low = [f for f, v in per_finger_Q_rec.items() if v < 0.5]
+    return label, {"low_recoverability_fingers": low, "Q": float(Q)}
