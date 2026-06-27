@@ -14,7 +14,7 @@ checkpoints/
 data/
 *.mp4
 *.npz
-!hoi_recon/**/*.npz
+!render_and_compare/hoi_recon/**/*.npz
 .DS_Store
 .ipynb_checkpoints/
 wget-log
