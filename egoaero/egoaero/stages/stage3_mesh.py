@@ -4,7 +4,7 @@ recovers the SAM3D->coarse rigid+scale alignment (the one specified operation)."
 from __future__ import annotations
 import numpy as np
 from ..bundle import Bundle
-from ..core.geometry import umeyama, se3, rotvec_to_R, transform_points
+from ..core.geometry import umeyama, rotvec_to_R, transform_points
 
 NAME = "stage3_mesh"; INDEX = 3
 

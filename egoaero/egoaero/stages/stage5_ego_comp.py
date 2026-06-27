@@ -22,7 +22,8 @@ def _smooth(x, w):
 
 def run(ctx) -> Bundle:
     cfg = ctx.cfg
-    s0 = ctx.load("stage0_ego_io"); s2 = ctx.load("stage2_track"); s4 = ctx.load("stage4_hand")
+    s0 = ctx.load("stage0_ego_io"); s2 = ctx.load("stage2_track")
+    s3 = ctx.load("stage3_mesh"); s4 = ctx.load("stage4_hand")
     if not cfg.mock:
         raise NotImplementedError("real ORB-SLAM3 backend — backends/real.py")
     table_T = s0["table_T_gt"]                       # real: estimate from SLAM + plane fit
@@ -36,6 +37,6 @@ def run(ctx) -> Bundle:
     op[:, :3, 3] = _smooth(op[:, :3, 3], win)          # smooth object translation only
     hv = _smooth(hv, win)
     return Bundle(arrays={"hand_verts_t": hv, "hand_joints_t": hj, "obj_poses_t": op,
-                          "obj_verts": s2["obj_verts"], "obj_faces": s2["obj_faces"]},
+                          "obj_verts": s3["obj_verts"], "obj_faces": s3["obj_faces"]},
                   meta={"finger_idx": s0.meta["finger_idx"],
                         "stage_labels": s0.meta["stage_labels"]})

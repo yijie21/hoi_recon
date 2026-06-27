@@ -3,8 +3,7 @@ Task 8: coarse RANSAC rigid init. Task 9: memory-pool pose-graph optimization.""
 from __future__ import annotations
 import numpy as np
 from ..bundle import Bundle
-from ..core.geometry import (se3, se3_inv, transform_points, umeyama, knn,
-                             R_to_rotvec, geodesic_deg)
+from ..core.geometry import se3, se3_inv, transform_points, umeyama
 
 NAME = "stage2_track"; INDEX = 2
 

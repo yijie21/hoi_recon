@@ -29,19 +29,19 @@ def procedural_hand(n: int = 778, seed: int = 0):
         z_along.append(z / L)                       # 0 at base .. 1 at tip
     V = np.concatenate(verts, 0).astype(np.float64)
     Z = np.concatenate(z_along, 0)
+    fidx["z_norm"] = Z                              # per-vertex normalized along-finger coord
     # 21 joints: wrist + 4 per finger
     joints = [[0.0, 0.0, -0.020]]
     for f in FINGERS:
         for fr in (0.25, 0.5, 0.75, 1.0):
             joints.append([_BASE_X[f], 0.0, fr * _LENGTHS[f]])
-    procedural_hand._z = Z                          # cache normalized along-finger coord
     return V, np.asarray(joints, float), fidx
 
 
 def fingertip_pad_idx(fidx, finger):
-    idx = fidx[finger]
-    z = procedural_hand._z[idx]
-    return idx[z > 0.7]                              # distal pad = top 30% of finger
+    z = np.asarray(fidx["z_norm"])
+    idx = np.asarray(fidx[finger])
+    return idx[z[idx] > 0.7]                         # distal pad = top 30% of finger
 
 
 def thenar_idx(fidx):
@@ -50,9 +50,8 @@ def thenar_idx(fidx):
 
 
 def finger_chain_weights(verts, fidx, finger):
-    n = verts.shape[0]
-    w = np.zeros(n)
-    z = procedural_hand._z
-    fi = fidx[finger]
-    w[fi] = np.clip(z[fi], 0.0, 1.0) ** 1.0          # distal-heavy, palm≈0
+    z = np.asarray(fidx["z_norm"])
+    w = np.zeros(len(verts))
+    fi = np.asarray(fidx[finger])
+    w[fi] = np.clip(z[fi], 0.0, 1.0)                # distal-heavy, palm≈0
     return w

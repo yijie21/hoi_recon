@@ -133,7 +133,8 @@ def run(ctx) -> Bundle:
     s5 = ctx.load("stage5_ego_comp")
     hv = s5["hand_verts_t"].copy(); hj = s5["hand_joints_t"].copy()
     obj_poses = s5["obj_poses_t"]; ov = s5["obj_verts"]; of = s5["obj_faces"].astype(int)
-    fidx = {k: np.asarray(v, int) for k, v in s5.meta["finger_idx"].items()}
+    fidx = {k: (np.asarray(v, float) if k == "z_norm" else np.asarray(v, int))
+            for k, v in s5.meta["finger_idx"].items()}
     labels = s5.meta["stage_labels"]; T = hv.shape[0]
     win = active_window(labels)
 
@@ -170,18 +171,27 @@ def run(ctx) -> Bundle:
     for i in range(T):
         hv[i] += delta[i]; hj[i] += delta[i]
 
-    # local finger correction (thumb) weighted by finger chain
+    # local finger correction (thumb + opposing finger) weighted by finger chain
     for i in win:
         ow, on = _obj_world(ov, of, obj_poses[i])
-        for f, g in [("thumb", cc.contact_gap_m)]:
+        opp_f = select_opposing_finger(hv[i], fidx, ow)
+        for f, g in [("thumb", cc.contact_gap_m), (opp_f, cc.opp_gap_m)]:
             pad = H.fingertip_pad_idx(fidx, f)
             if len(pad) == 0:
                 continue
             s, nn = signed_distance(hv[i][pad], ow, on)
             off = np.mean(-nn * np.maximum(s - g, 0)[:, None], axis=0)
             off = np.clip(off, -cc.max_finger_disp_m, cc.max_finger_disp_m)
+            # vertex-level correction weighted by finger chain
             w = H.finger_chain_weights(hv[i], fidx, f)
             hv[i] += w[:, None] * off
+            # joint-level correction: distal ramp [0.25,0.5,0.75,1.0] on 4 joints of finger f
+            k = H.FINGERS.index(f)
+            base = k * 4 + 1
+            jw = np.zeros(hj[i].shape[0])
+            for qi, alpha in enumerate([0.25, 0.5, 0.75, 1.0]):
+                jw[base + qi] = alpha
+            hj[i] += jw[:, None] * off
         # penetration push-back (whole hand)
         s_all, n_all = signed_distance(hv[i], ow, on)
         r = penetration_pushback(hv[i], s_all, n_all, cc.pen_eps_m, cc.max_pushback_m)

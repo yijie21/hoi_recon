@@ -1,11 +1,11 @@
 from egoaero import config
 from egoaero.pipeline import RunContext
-from egoaero.stages import (stage0_ego_io, stage2_track, stage4_hand,
+from egoaero.stages import (stage0_ego_io, stage2_track, stage3_mesh, stage4_hand,
                             stage5_ego_comp, stage6_contact, stage7_eval)
 
 def test_report_has_before_after(tmp_path):
     ctx = RunContext(config.load_config(overrides={"num_frames": 16}), str(tmp_path))
-    for m in (stage0_ego_io, stage2_track, stage4_hand, stage5_ego_comp, stage6_contact):
+    for m in (stage0_ego_io, stage2_track, stage3_mesh, stage4_hand, stage5_ego_comp, stage6_contact):
         m.run(ctx).save(ctx.stage_dir(m.NAME))
     b = stage7_eval.run(ctx)
     r = b.meta["report"]

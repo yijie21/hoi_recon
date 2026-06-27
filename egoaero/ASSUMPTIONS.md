@@ -72,3 +72,10 @@ Every value the paper leaves unspecified, with the section it fills and the sour
 - **App C constants used verbatim**: `contact_gap_m 0.0005`, `thenar_gap_m 0.0018`,
   `max_global_trans_m 0.034`, `max_finger_disp_m 0.015`, `max_pushback_m 0.008`,
   `smooth_window 9`, `boundary_frames 6`. (Task 14)
+- **Local correction scope (App C § "replay-geometry level")**: Both the thumb pad and the
+  dynamically-selected opposing finger receive the local offset.  The offset is applied to
+  vertices (weighted by `finger_chain_weights`) AND to the four MANO-chain joints of each
+  corrected finger (distal ramp `[0.25, 0.5, 0.75, 1.0]`).  The per-joint ramp follows
+  App C's "distal-heavy" convention; joint indices are wrist(0) + 4 per finger in FINGERS
+  order (thumb 1-4, index 5-8, middle 9-12, ring 13-16, little 17-20).  The penetration
+  push-back step runs after all local corrections so overshoots are recovered. (final-review)

@@ -4,8 +4,8 @@ depth, and ground truth for every downstream stage and for error injection."""
 from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
-from .geometry import se3, se3_inv, rotvec_to_R, transform_points, uv_sphere, vertex_normals
-from .hand import procedural_hand, FINGERS
+from .geometry import se3, se3_inv, rotvec_to_R, transform_points, uv_sphere
+from .hand import procedural_hand
 
 
 @dataclass

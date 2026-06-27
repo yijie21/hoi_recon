@@ -1,7 +1,7 @@
 # egoaero/tests/test_stage6_run.py
 from egoaero import config
 from egoaero.pipeline import RunContext
-from egoaero.stages import (stage0_ego_io, stage2_track, stage4_hand,
+from egoaero.stages import (stage0_ego_io, stage2_track, stage3_mesh, stage4_hand,
                             stage5_ego_comp, stage6_contact)
 import numpy as np
 
@@ -9,6 +9,7 @@ def _prep(tmp_path, **over):
     ctx = RunContext(config.load_config(overrides={"num_frames": 16, **over}), str(tmp_path))
     stage0_ego_io.run(ctx).save(ctx.stage_dir("stage0_ego_io"))
     stage2_track.run(ctx).save(ctx.stage_dir("stage2_track"))
+    stage3_mesh.run(ctx).save(ctx.stage_dir("stage3_mesh"))
     stage4_hand.run(ctx).save(ctx.stage_dir("stage4_hand"))
     stage5_ego_comp.run(ctx).save(ctx.stage_dir("stage5_ego_comp"))
     return ctx
