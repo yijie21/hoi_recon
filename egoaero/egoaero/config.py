@@ -64,7 +64,7 @@ _DEFAULTS: Dict[str, Any] = {
         "gamma": 1.0,                 # U_unresolved weight in Q
         "pen_ref_mm": 50000.0,        # R_after penetration normalizer (mock-scale)
         "gap_ref_mm": 40.0,           # R_after contact-gap normalizer
-        "obj_move_thresh_mps": 0.01,  # object-moving threshold for U_unresolved
+        "obj_move_thresh_m_per_frame": 0.01,  # object-moving threshold for U_unresolved (per-frame translation)
         "q_accept": 0.6,              # Q >= -> accept
         "q_repairable": 0.3,          # q_repairable <= Q < q_accept -> repairable_accept
     },

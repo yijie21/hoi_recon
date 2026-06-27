@@ -41,7 +41,7 @@ def run(ctx) -> Bundle:
     for jpos, t in enumerate(window):
         tp = max(t - 1, 0)
         speed = float(np.linalg.norm(obj_poses[t][:3, 3] - obj_poses[tp][:3, 3]))
-        moving[jpos] = speed > qc.obj_move_thresh_mps
+        moving[jpos] = speed > qc.obj_move_thresh_m_per_frame
     U = Q.unresolved_ratio(gap_after, delta, moving, qc.eps_g_m, qc.eps_delta_m)
 
     Qval = Q.quality_score(R_after, budget, U, qc.alpha, qc.beta, qc.gamma)
