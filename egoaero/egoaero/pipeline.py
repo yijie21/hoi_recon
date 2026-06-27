@@ -91,4 +91,8 @@ def run_pipeline(cfg: Config, run_dir: str, stages: str = "all") -> RunContext:
             continue
         out = mod.run(ctx)
         out.save(ctx.stage_dir(mod.NAME))
+    # Auto-write workbench contract when stage7 was selected and stage6 output exists
+    if 7 in _selected(stages, len(STAGES)) and ctx.has("stage6_contact"):
+        from .contract import write as _cw
+        _cw(ctx)
     return ctx
