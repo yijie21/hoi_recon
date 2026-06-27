@@ -9,4 +9,5 @@ from . import (  # noqa: F401
     stage5_ego_comp,
     stage6_contact,
     stage7_eval,
+    stage8_quality,
 )
