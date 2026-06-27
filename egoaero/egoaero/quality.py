@@ -41,3 +41,45 @@ def per_finger_delta(coarse_verts_seq, repaired_verts_seq, finger_idx, window):
             disp = repaired_verts_seq[t][pad] - coarse_verts_seq[t][pad]
             out[f][jpos] = float(np.mean(np.linalg.norm(disp, axis=1)))
     return out
+
+
+def recoverability(gap_after, delta, eps_g, eps_delta):
+    """Q_rec^f = fraction of active frames where g_after < eps_g AND ||delta|| < eps_delta."""
+    out = {}
+    for f in H.FINGERS:
+        ga, df = gap_after[f], delta[f]
+        ok = (ga < eps_g) & (df < eps_delta)
+        out[f] = float(np.mean(ok)) if len(ok) else 0.0
+    return out
+
+
+def repair_budget(delta, delta_max):
+    """B_repair = median over all (frame, finger) of ||delta|| / delta_max."""
+    alld = np.concatenate([delta[f] for f in H.FINGERS]) if delta else np.zeros(1)
+    if alld.size == 0:
+        return 0.0
+    return float(np.median(alld) / max(delta_max, 1e-9))
+
+
+def residual_after(pen_after_mm, gap_after, pen_ref_mm, gap_ref_mm):
+    """R_after = pen_after/pen_ref + (median-over-fingers median-over-frames gap)*1000/gap_ref.
+    Dimensionless remaining penetration + contact-gap residual."""
+    per_finger_med = [np.median(gap_after[f]) for f in H.FINGERS if len(gap_after[f])]
+    gap_med_m = float(np.median(per_finger_med)) if per_finger_med else 0.0
+    return float(pen_after_mm / max(pen_ref_mm, 1e-9) + (gap_med_m * 1000.0) / max(gap_ref_mm, 1e-9))
+
+
+def unresolved_ratio(gap_after, delta, object_moving, eps_g, eps_delta):
+    """Fraction of object-moving active frames where NO finger has recoverable contact."""
+    moving = np.asarray(object_moving, bool)
+    n = len(moving)
+    if n == 0 or moving.sum() == 0:
+        return 0.0
+    unresolved = 0
+    for j in range(n):
+        if not moving[j]:
+            continue
+        any_rec = any((gap_after[f][j] < eps_g) and (delta[f][j] < eps_delta) for f in H.FINGERS)
+        if not any_rec:
+            unresolved += 1
+    return float(unresolved / moving.sum())
