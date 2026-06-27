@@ -9,3 +9,8 @@ Every value the paper leaves unspecified, with the section it fills and the sour
   paper specifies thumb/thenar gaps and bounds only → these are documented defaults. (Task 1, 13-14)
 - `hand.depth_bias_m`, `track.drift_sigma_*`: mock-mode injected error magnitudes (not from
   paper) used to exercise the correction/optimizer modules. (Task 5, 8, 11)
+
+## SE3 Parameterization
+- `se3_log` / `se3_exp` use a **left-trivialized small-step parameterization** (translation
+  decoupled from rotation), adequate for the iterative pose-graph refinement here; full SE3
+  exponential not required at the step sizes used. (Task 2, 3, 6)
