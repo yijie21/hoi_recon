@@ -28,8 +28,8 @@ def write(ctx) -> dict:
         verts=s6["hand_verts_t"],
         joints=s6["hand_joints_t"],
     )
-    np.savez(os.path.join(d, "object_traj.npz"), poses=s6["obj_poses_t"])
-    np.savez(os.path.join(d, "contact.npz"), mask=s6["contact_mask"])
+    np.savez(os.path.join(d, "object_traj.npz"), obj_poses_t=s6["obj_poses_t"])
+    np.savez(os.path.join(d, "contact.npz"), contact_mask=s6["contact_mask"])
     _write_obj(
         os.path.join(d, "object_mesh.obj"),
         s6["obj_verts"],

@@ -7,6 +7,9 @@ from egoaero import contract
 def test_contract_written_and_valid(tmp_path):
     cfg = config.load_config(overrides={"num_frames": 16})
     ctx = run_pipeline(cfg, str(tmp_path / "run"), stages="all")
+    # Verify pipeline-hook auto-write path first
+    assert contract.validate(str(tmp_path / "run"))
+    # Then verify manual write also works
     out = contract.write(ctx)
     assert contract.validate(str(tmp_path / "run"))
     assert "object_traj" in out and "hand_mano" in out
