@@ -55,6 +55,19 @@ _DEFAULTS: Dict[str, Any] = {
         "region_weights": {"thumb": 1.0, "opp": 1.0, "hukou": 0.5},  # DOCUMENTED
         "rotation_enabled": False,    # whole-hand rotation disabled (0 deg)
     },
+    "quality": {                      # App E — paper gives NO constants; all DOCUMENTED defaults
+        "eps_g_m": 0.004,             # contact-gap recoverability threshold (4 mm)
+        "eps_delta_m": 0.012,         # per-finger correction-budget threshold (12 mm)
+        "delta_max_m": 0.015,         # budget normalizer (= contact.max_finger_disp_m)
+        "alpha": 1.0,                 # R_after weight in Q
+        "beta": 0.5,                  # B_repair weight in Q
+        "gamma": 1.0,                 # U_unresolved weight in Q
+        "pen_ref_mm": 50000.0,        # R_after penetration normalizer (mock-scale)
+        "gap_ref_mm": 40.0,           # R_after contact-gap normalizer
+        "obj_move_thresh_mps": 0.01,  # object-moving threshold for U_unresolved
+        "q_accept": 0.6,              # Q >= -> accept
+        "q_repairable": 0.3,          # q_repairable <= Q < q_accept -> repairable_accept
+    },
     "paths": {
         "third_party": os.path.join(_METHOD_ROOT, "third_party"),
         "checkpoints": os.path.join(_METHOD_ROOT, "checkpoints"),

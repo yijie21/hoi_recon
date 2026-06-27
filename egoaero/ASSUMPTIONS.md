@@ -79,3 +79,11 @@ Every value the paper leaves unspecified, with the section it fills and the sour
   App C's "distal-heavy" convention; joint indices are wrist(0) + 4 per finger in FINGERS
   order (thumb 1-4, index 5-8, middle 9-12, ring 13-16, little 17-20).  The penetration
   push-back step runs after all local corrections so overshoots are recovered. (final-review)
+
+## SP3 — Online quality assessment (App E)
+App E specifies the equations (Q_rec, B_repair, Q=exp(-aR-bB-gU), 3 decisions) but NO constants.
+Documented defaults (config.quality): eps_g=4mm, eps_delta=12mm, delta_max=15mm (=max_finger_disp),
+alpha=1.0, beta=0.5, gamma=1.0, pen_ref=50000mm & gap_ref=40mm (R_after normalizers, mock-scaled),
+obj_move_thresh=0.01 m/frame (U_unresolved), q_accept=0.6 / q_repairable=0.3 (decision thresholds).
+U_unresolved heuristic (paper names but does not define): fraction of active frames where the object
+is moving yet NO finger has recoverable contact. These are reasonable starting defaults, not paper values; on the synthetic mock clip the high procedural penetration yields a lower Q (repairable_accept/recapture) — an honest reflection of the mock scene, not a defect.
