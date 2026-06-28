@@ -91,7 +91,7 @@ _DEFAULTS: Dict[str, Any] = {
         "eta_delta": 0.1,         # residual-action contribution in r_stage2
     },
     "term": {                       # Stage-II early termination thresholds
-        "obj_pos_err_m": 0.5,       # object position error (m) that triggers termination
+        "obj_pos_err_m": 0.15,      # object position error (m) that triggers termination
     },
     "paths": {
         "third_party": os.path.join(_METHOD_ROOT, "third_party"),

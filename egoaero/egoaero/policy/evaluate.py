@@ -196,6 +196,6 @@ def ablation(run_dir: str, hand_xml: str, policy_cfg: dict, budget: str = "smoke
         "reusing 'full' result.  Pass a run_dir produced with --stages 0-5,7 to "
         "obtain a real comparison (see ASSUMPTIONS.md)."
     )
-    out["wo_contact_opt"] = out["full"]
+    out["wo_contact_opt"] = dict(out["full"])
 
     return out

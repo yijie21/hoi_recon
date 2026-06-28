@@ -116,6 +116,13 @@ The Shadow Hand's 20 actuators include 2 wrist actuators (`rh_A_WRJ1`, `rh_A_WRJ
 `finger_act_ids` is the list of the remaining 18 (those whose actuator name lacks 'WRJ').
 Verified on the composed model (mujoco 3.10).
 
+### Object-tracking reward reference velocity
+In `StageIIEnv`, the object-tracking reward `r_obj` is computed with a zero reference
+object velocity (`podot_ref = 0`). This means the velocity sub-term of `r_obj` penalizes
+object motion in the reference frame rather than deviation from a reference velocity —
+a documented mock-scale simplification where the object reference trajectory does not
+specify a velocity profile.
+
 ## Task 8 — StageIEnv simplifications (env.py)
 
 ### Wrist orientation = identity
@@ -158,11 +165,11 @@ weight `mu_F` in the Stage-II reward configuration.
 
 ### Object-position early termination
 `terminated` is triggered when the object centroid drifts more than
-`cfg["term"]["obj_pos_err_m"]` (default 0.5 m) from the reference trajectory.
+`cfg["term"]["obj_pos_err_m"]` (default 0.15 m) from the reference trajectory.
 This threshold is deliberately generous so that the no-op Stage-I policy used
 in tests (which makes no contact) does not immediately terminate the episode.
 Paper (App D) specifies early termination for "large tracking errors" but gives
-no threshold value; 0.5 m is a documented default for the mock setting.
+no threshold value; 0.15 m is a documented default for the mock setting.
 Hand-error and penetration thresholds are mentioned in App D but not given
 numerically; they are not implemented here (only the object-pos threshold is).
 
