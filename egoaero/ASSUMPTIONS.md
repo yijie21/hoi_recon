@@ -199,3 +199,38 @@ run dir and passing it here.
 `StageIIEnv._obj_pose()` returns `(pos[3], quat[4])`.  `rollout()` converts to
 `R[3,3]` via `mujoco.mju_quat2Mat` immediately after the env step so that the
 caller receives the (T,3,3) array documented in the task contract.
+
+## Task 12 — CLI, console scripts, and real-run metrics
+
+### Console scripts
+`egoaero-train` and `egoaero-eval` both map to `egoaero.policy.cli:main`.  The
+`train` / `eval` subcommand (first positional argument) selects the action.  Both
+scripts are registered in `egoaero/pyproject.toml` under `[project.scripts]`; they
+require `pip install -e "egoaero[rl]"` (mujoco, stable-baselines3, gymnasium,
+torch).
+
+### `--budget` choices
+- `smoke` (default): 512 total timesteps per stage; completes in ~10 s on CPU.
+  Used by CI / the gated smoke test.
+- `real`: 1 500 000 total timesteps per stage; intended for a GPU run.  The paper
+  does not specify total step counts; 1.5M is a documented default matching common
+  SB3 dexterous-hand baselines.
+
+### Real-run metrics placeholder
+`README.md` contains a placeholder line **"Real-run metrics: (filled in by a real
+`--budget real` run — see ASSUMPTIONS)"**.  This will be replaced with actual
+`Er / Et / Ej / Eft / SR` numbers once the controller runs:
+```bash
+egoaero-train --run runs/demo --out runs/demo/policy --budget real
+egoaero-eval  --run runs/demo --policy runs/demo/policy
+```
+Results from a single mock clip + Shadow Hand substitute are a feasibility
+demonstration; they will not match paper numbers (multi-subject, real cameras,
+real hand hardware correspondence).
+
+### wo_contact_opt ablation CLI wiring (ASSUMPTIONS carry-over from Task 11)
+`evaluate.ablation()` documents that the `wo_contact_opt` condition requires a
+second run dir produced with `--stages 0-5,7` (stage-6 contact optimisation
+disabled).  The CLI does not expose a `--wo-contact-run` flag in this sprint;
+the ablation function logs a WARNING and reuses `full` when only one run dir is
+provided.  A real ablation would pass separate run dirs to `ablation()` directly.

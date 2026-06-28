@@ -18,6 +18,10 @@ dependencies = [
 test = ["pytest"]
 rl = ["mujoco>=3", "stable-baselines3>=2", "gymnasium>=1", "torch"]
 
+[project.scripts]
+egoaero-train = "egoaero.policy.cli:main"
+egoaero-eval  = "egoaero.policy.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["egoaero*"]

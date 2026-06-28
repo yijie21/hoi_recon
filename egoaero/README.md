@@ -124,11 +124,96 @@ Full MPJPE and contact-F1 require real GT annotations (planned for SP3 — see r
 
 ---
 
+## SP2 — Two-stage residual RL policy
+
+SP2 implements the **two-stage residual policy** described in Appendix D of the
+EgoAERO paper, using **MuJoCo 3 + Stable-Baselines3 PPO** and the
+**Shadow Hand** (right) as the dexterous hand substitute.
+
+### Design
+
+The policy stack has two stages, both trained with PPO (`egoaero/egoaero/policy/`):
+
+| Stage | Env | Task | Reward |
+|-------|-----|------|--------|
+| I — `pi_I` | `StageIEnv` | Wrist tracking + finger keypoint matching | App D: wrist-position, finger-keypoint, action-smoothness, power terms |
+| II — `pi_R` (residual) | `StageIIEnv` | Contact + object tracking on top of frozen `pi_I` | App D: Stage-I terms + object-pose, contact-distance, contact-force, residual-regularization |
+
+**Mocap-driven wrist** — the Shadow Hand forearm is kinematically welded to a
+MuJoCo `mocap` body (`wrist_target`).  At rollout time the wrist trajectory from
+the SP1 contract drives `data.mocap_pos / data.mocap_quat`; the 18 finger
+actuators are the only policy outputs.  This avoids adding a floating 6-DoF wrist
+base while still letting the hand follow the reconstructed trajectory.
+
+**App-D rewards** (`policy/rewards.py`) — Stage-I reward: wrist position/orientation,
+fingertip keypoints, action smoothness, actuator power.  Stage-II adds: object pose
+(rotation + translation), contact distance, contact force saturation, residual
+regularization.  All term weights are documented defaults (App D gives structure but
+no numbers; see [`ASSUMPTIONS.md`](ASSUMPTIONS.md)).
+
+**App-H metrics** (`policy/metrics.py`) — object rotation error Er (geodesic, deg),
+object translation error Et (cm), fingertip error Ej / Eft (cm), success rate SR.
+Reported by `egoaero-eval` after rollout.
+
+### Usage
+
+**Install the RL extras first:**
+```bash
+pip install -e "egoaero[rl]"   # mujoco>=3, stable-baselines3>=2, gymnasium>=1, torch
+```
+
+**Quick smoke run** (512 steps/stage, ~10 s on CPU):
+```bash
+# build a mock reconstruction run
+python -m egoaero.cli --out runs/demo --mock
+
+# train (smoke budget)
+egoaero-train --run runs/demo --out runs/demo/policy --budget smoke
+
+# evaluate
+egoaero-eval --run runs/demo --policy runs/demo/policy
+```
+
+**Production GPU run** (1.5M steps/stage):
+```bash
+egoaero-train --run runs/demo --out runs/demo/policy --budget real
+egoaero-eval  --run runs/demo --policy runs/demo/policy
+```
+
+Both `egoaero-train` and `egoaero-eval` are console scripts that call
+`egoaero.policy.cli:main` with the `train` / `eval` subcommand.  You can also
+invoke directly without install:
+```bash
+python -m egoaero.policy.cli train  --run <run_dir> --out <pol_dir> --budget smoke
+python -m egoaero.policy.cli eval   --run <run_dir> --policy <pol_dir>
+```
+
+### Budgets
+
+| Budget | Steps per stage | Typical wall time | Purpose |
+|--------|----------------|-------------------|---------|
+| `smoke` | 512 | ~10 s CPU | CI / sanity check |
+| `real`  | 1 500 000 | ~hours GPU | Feasibility demo |
+
+### Honest scope
+
+This is a single-clip, single-hand-substitute feasibility implementation:
+- The Shadow Hand is a kinematically different device from the human hand in the
+  video.  Fingertip keypoints (`Ej = Eft`) are used as a proxy for App-H joint
+  error because there is no full robot ↔ MANO joint correspondence (see
+  [`ASSUMPTIONS.md`](ASSUMPTIONS.md)).
+- One-clip results will not match the paper's multi-subject, real-camera dataset
+  numbers.  The real-run metrics below are a feasibility demonstration only.
+
+**Real-run metrics: (filled in by a real `--budget real` run — see ASSUMPTIONS)**
+
+---
+
 ## SP2 / SP3 / SP4 roadmap
 
 | Sprint | Topic | Status |
 |--------|-------|--------|
-| SP2 | RL contact policy (real App C backend, learned push-back) | Planned |
+| SP2 | RL contact policy (two-stage PPO, Shadow Hand, App-D rewards/App-H metrics) | Done |
 | SP3 | Online quality assessment (App E accept/repairable/recapture) | Done |
 | SP4 | Dataset integration (Ego4D, EPIC-Kitchens egocentric clips) | Planned |
 
