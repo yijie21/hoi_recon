@@ -82,3 +82,74 @@ def r_stage1(r_wrist_v, r_finger_v, r_smooth_v, w_w, w_f, w_s):
         float: weighted sum of rewards
     """
     return float(w_w * r_wrist_v + w_f * r_finger_v + w_s * r_smooth_v)
+
+
+def r_obj(p_o, R_o, podot, p_ref, R_ref, podot_ref, mu_p, mu_R, mu_v):
+    """Object pose reward (exponential of negative weighted squared errors).
+
+    Args:
+        p_o, R_o, podot: current position (3,), rotation (3x3), velocity (3,)
+        p_ref, R_ref, podot_ref: desired position (3,), rotation (3x3), velocity (3,)
+        mu_p, mu_R, mu_v: weight on position error, rotation error, velocity error
+
+    Returns:
+        float: reward in [0, 1]
+    """
+    dp = np.sum((np.asarray(p_o) - np.asarray(p_ref)) ** 2)
+    dR = geodesic_rad(R_o, R_ref) ** 2
+    dv = np.sum((np.asarray(podot) - np.asarray(podot_ref)) ** 2)
+    return float(np.exp(-mu_p * dp - mu_R * dR - mu_v * dv))
+
+
+def r_contact(dists, forces, active, mu_d, mu_F):
+    """Contact reward (mean exponential over active fingers).
+
+    Returns 0.0 if active finger set is empty, otherwise computes mean reward
+    over active fingers as exp(-mu_d * d^2) * (1 - exp(-mu_F * |F|)).
+
+    Args:
+        dists: per-finger distances (N,)
+        forces: per-finger forces (N,)
+        active: list/array of active finger indices
+        mu_d: weight on distance decay
+        mu_F: weight on force activation
+
+    Returns:
+        float: mean contact reward, or 0.0 if no active fingers
+    """
+    active = list(active)
+    if not active:
+        return 0.0
+    d = np.asarray(dists, float)
+    f = np.asarray(forces, float)
+    vals = [np.exp(-mu_d * d[i] ** 2) * (1.0 - np.exp(-mu_F * abs(f[i]))) for i in active]
+    return float(np.mean(vals))
+
+
+def r_res(delta_a, mu_delta):
+    """Residual action reward (exponential of negative weighted squared action changes).
+
+    Args:
+        delta_a: action residuals (M,)
+        mu_delta: weight on action change penalty
+
+    Returns:
+        float: residual action reward
+    """
+    return float(np.exp(-mu_delta * np.sum(np.asarray(delta_a) ** 2)))
+
+
+def r_stage2(r1, r_obj_v, r_contact_v, r_res_v, eta_I, eta_o, eta_c, eta_delta):
+    """Stage-II reward: weighted sum of Stage-I and new contact/residual terms.
+
+    Args:
+        r1: Stage-I reward
+        r_obj_v: object pose reward
+        r_contact_v: contact reward
+        r_res_v: residual action reward
+        eta_I, eta_o, eta_c, eta_delta: weights for Stage-I, object, contact, residual
+
+    Returns:
+        float: weighted sum of Stage-II components
+    """
+    return float(eta_I * r1 + eta_o * r_obj_v + eta_c * r_contact_v + eta_delta * r_res_v)
