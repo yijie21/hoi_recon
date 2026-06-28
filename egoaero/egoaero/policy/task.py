@@ -71,7 +71,8 @@ def load_reference(run_dir: str) -> dict:
     T              : int         number of frames
     """
     d = os.path.join(run_dir, "contract")
-    man = json.load(open(os.path.join(d, "manifest.json")))
+    with open(os.path.join(d, "manifest.json")) as _mf:
+        man = json.load(_mf)
 
     hand = _load_npz(os.path.join(d, man["hand_mano"]))
     obj = _load_npz(os.path.join(d, man["object_traj"]))
@@ -168,8 +169,8 @@ class Task:
             raise RuntimeError("Joint 'obj_free' not found in composed model.")
         self.obj_qadr: int = int(model.jnt_qposadr[jid])
 
-    @classmethod
-    def from_run(cls, run_dir: str, hand_xml: str, cfg) -> "Task":
+    @staticmethod
+    def from_run(run_dir: str, hand_xml: str, cfg) -> "Task":
         """Convenience constructor — delegates to build_task."""
         return build_task(run_dir, hand_xml, cfg)
 
@@ -235,9 +236,15 @@ def build_task(run_dir: str, hand_xml: str, cfg) -> Task:
 
     # --- Reconstructed object mesh + free body ---
     spec.add_mesh(name="obj_mesh", file=os.path.abspath(ref["mesh_path"]))
+    # Clamp object z above table plane: ensure clearance by object radius
+    obj_pos0 = list(map(float, ref["obj_pos"][0]))
+    verts = _read_obj_verts(ref["mesh_path"])
+    centroid = verts.mean(axis=0)
+    radius = float(np.max(np.linalg.norm(verts - centroid, axis=1)))
+    obj_pos0[2] = max(obj_pos0[2], radius + 0.005)
     obj_body = wb.add_body(
         name="object",
-        pos=list(map(float, ref["obj_pos"][0])),
+        pos=obj_pos0,
     )
     obj_body.add_freejoint(name="obj_free")
     obj_body.add_geom(
