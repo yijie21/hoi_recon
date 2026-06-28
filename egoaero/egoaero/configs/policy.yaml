@@ -1,0 +1,37 @@
+reward:
+  w_w: 1.0
+  w_f: 1.0
+  w_s: 0.1
+  lam_p: 40.0      # wrist position (1/m^2 scale)
+  lam_R: 1.0       # wrist orientation (1/rad^2)
+  lam_v: 1.0       # wrist velocity
+  lam_k: 40.0      # finger keypoint
+  lam_a: 0.1       # action smoothness
+  lam_tau: 0.001   # torque*qvel power
+  eta_I: 1.0
+  eta_o: 1.0
+  eta_c: 1.0
+  eta_delta: 0.1
+  mu_p: 40.0
+  mu_R: 1.0
+  mu_v: 1.0
+  mu_d: 200.0      # contact distance (1/m^2)
+  mu_F: 1.0        # contact force saturation
+  mu_delta: 1.0    # residual regularization
+ppo:
+  policy: "MlpPolicy"
+  n_steps: 2048
+  batch_size: 256
+  learning_rate: 0.0003
+  net_arch: [256, 256]
+budget:
+  smoke: 512       # total timesteps per stage (tests)
+  real: 1500000    # total timesteps per stage (GPU run)
+term:               # early-termination thresholds (Stage II)
+  obj_pos_err_m: 0.15
+  hand_err_m: 0.15
+  penetration_m: 0.03
+retarget:
+  ik_damping: 0.05
+  ik_iters: 50
+  contact_active_dist_m: 0.02   # finger is reference-active if fingertip within this of object

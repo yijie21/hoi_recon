@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest"]
+rl = ["mujoco>=3", "stable-baselines3>=2", "gymnasium>=1", "torch"]
 
 [tool.setuptools.packages.find]
 where = ["."]
