@@ -292,9 +292,11 @@ This is a **mock reproduction** of the EgoDex-R collection loop:
 - **Dataset scale**: each run collects a handful of mock sequences. The paper's EgoDex-R dataset
   contains **4.3M frames / 5,600 sequences** captured with real FastUMI-Ego hardware — that scale
   and hardware are not reproduced here.
-- **Difficulty rating**: a 4-term heuristic over `occlusion`, `obj_motion_m`, `R_after` (residual
-  penetration/gap), and `contact_richness`. The paper uses an MLLM judge for difficulty annotation;
-  this is a documented heuristic substitute.
+- **Difficulty rating**: a 5-term heuristic combining occlusion, object motion (normalized by 0.5 m),
+  residual quality `R_after` (normalized by 3.0), unresolved contact `U_unresolved`, and contact richness
+  (inverse). Formula: `D = round(1 + 4 * frac)` where `frac = clip((w_occ·occ + w_mot·motion +
+  0.5·w_res·(residual + U_unresolved) - w_con·contact) / (w_occ + w_mot + w_res), 0, 1)`.
+  The paper uses an MLLM judge for difficulty annotation; this is a documented heuristic substitute.
 - **Task descriptions**: templated natural-language strings from a fixed vocabulary. Not from the paper's
   annotation pipeline.
 - The mock_tightness press scale 0.08 was tuned to produce genuine `repairable_accept` outputs across

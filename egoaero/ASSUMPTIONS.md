@@ -216,10 +216,11 @@ caller receives the (T,3,3) array documented in the task contract.
 
 ### Difficulty heuristic (difficulty.py)
 App F annotates each accepted sequence with a difficulty rating 1–5.  The paper uses an MLLM judge
-for annotation; this implementation uses a 4-term heuristic:
-`D = clip(round(raw * 4 + 1), 1, 5)` where
-`raw = w_occ * occlusion + w_mot * obj_motion_m + w_res * R_after - w_con * contact_richness`,
-normalized to [0,1] by `max(raw, eps)`.  Default weights: `w_occlusion=1.0, w_motion=1.0,
+for annotation; this implementation uses a 5-term heuristic:
+`D = round(1 + 4 * frac)` where `frac = clip(hard / denom, 0, 1)` and
+`hard = w_occ·occlusion + w_mot·motion + 0.5·w_res·(residual + U_unresolved) - w_con·contact`,
+with motion = min(obj_motion_m / 0.5, 1), residual = min(R_after / 3.0, 1), occlusion and U_unresolved
+in [0,1], and denom = w_occ + w_mot + w_res.  Default weights: `w_occlusion=1.0, w_motion=1.0,
 w_residual=1.0, w_contact=1.0` (documented defaults; paper gives no values).  (SP4 Task 2)
 
 ### Synthetic capture source (capture.py)

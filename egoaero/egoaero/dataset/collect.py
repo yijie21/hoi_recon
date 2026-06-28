@@ -76,7 +76,7 @@ def run_collection(out_dir, n_target, dataset_cfg, seed=0, work_root=None):
             q = json.load(f)
         decision = q["decision"]
         decisions[decision] = decisions.get(decision, 0) + 1
-        if decision == "recapture":
+        if decision not in ("accept", "repairable_accept"):
             continue
         rs = recon_summary(run_dir, q)
         difficulty = difficulty_score(q, rs, dw)
