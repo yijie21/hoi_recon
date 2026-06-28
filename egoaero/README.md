@@ -205,7 +205,16 @@ This is a single-clip, single-hand-substitute feasibility implementation:
 - One-clip results will not match the paper's multi-subject, real-camera dataset
   numbers.  The real-run metrics below are a feasibility demonstration only.
 
-**Real-run metrics: (filled in by a real `--budget real` run — see ASSUMPTIONS)**
+**Real-run metrics:**
+
+Single mock clip, 64 frames; Shadow Hand substitute; mocap-driven wrist; two-stage PPO, 40k steps/stage, CPU, ~107s total:
+
+| Setting | Er (deg) | Et (cm) | Ej (cm) | Eft (cm) | SR |
+|---|---|---|---|---|---|
+| Baseline (zero policy) | 59.2 | 5.9 | 39.5 | 39.5 | 0.0 |
+| Trained (π_I + π_R) | 59.2 | 5.9 | 39.8 | 39.8 | 0.0 |
+
+The two-stage pipeline runs end-to-end and trains in ~107s, but at this demonstration budget on a single synthetic clip with the substitute hand the learned policy does not improve object manipulation over the zero-action baseline — object-tracking errors remain unchanged because the hand never establishes effective contact with the object, and success rate stays 0. This is consistent with the documented limitations (one clip, Shadow-Hand substitute, mocap wrist, mock-scale rewards, tiny budget vs. the paper's full Isaac-Gym training over many sequences). The deliverable is a faithful, runnable reproduction of the App-D/App-H machinery, not a trained manipulation result.
 
 ---
 
