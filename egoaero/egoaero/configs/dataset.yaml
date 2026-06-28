@@ -1,0 +1,12 @@
+collection:
+  n_target: 5          # accepted sequences to collect (CLI --n overrides)
+  max_attempts: 40     # cap on capture attempts
+  num_frames: 32       # frames per synthetic clip
+difficulty:
+  w_occlusion: 1.0     # documented heuristic weights
+  w_motion: 1.0
+  w_residual: 1.0
+  w_contact: 1.0       # subtracted (richer recoverable contact => easier)
+capture:
+  tightness_min: 0.0   # synthetic clip quality spread (loose -> recapture)
+  tightness_max: 1.0   # (tight -> accept)

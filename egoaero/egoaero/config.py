@@ -13,6 +13,7 @@ _DEFAULTS: Dict[str, Any] = {
     "mock": True,
     "seed": 0,
     "num_frames": 48,
+    "mock_tightness": 0.0,   # SP4: synthetic grasp tightness knob (0=loose .. 1=tight contact)
     "video": None,
     "backend": {                      # real-mode drivers (gated; see backends/real.py)
         "hand": "hawor",

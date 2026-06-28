@@ -9,7 +9,8 @@ def run(ctx) -> Bundle:
     cfg = ctx.cfg
     if not cfg.mock:
         raise NotImplementedError("real ego-io backend (RGB-D loader) — see backends/real.py")
-    s = generate_ego_hoi(num_frames=int(cfg.num_frames), seed=int(cfg.seed))
+    s = generate_ego_hoi(num_frames=int(cfg.num_frames), seed=int(cfg.seed),
+                         tightness=float(cfg.mock_tightness))
     arrays = {
         "intrinsics": s.intrinsics, "cam_traj": s.cam_traj, "table_T_gt": s.table_T,
         "depth": s.depth, "obj_mask": s.obj_mask, "hand_mask": s.hand_mask,
