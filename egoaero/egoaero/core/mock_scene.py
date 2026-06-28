@@ -76,7 +76,7 @@ def generate_ego_hoi(num_frames=48, seed=0, image_size=(480, 640), fps=30.0, tig
     hv, hj, fidx = procedural_hand(778, seed)
     bump = 0.5 * (1 + np.cos(2 * np.pi * (t - 0.5)))
     gap = 0.05 * (1 - bump) - 0.004 * bump
-    gap = gap + float(tightness) * 0.05 * bump   # deepen grasp press by up to 5 cm at contact
+    gap = gap + float(tightness) * 0.08 * bump   # deepen grasp press by up to 8 cm at contact (SP4: raised from 0.05 to 0.08 to produce genuine accept/repairable_accept spread at high tightness)
     max_fz = hv[:, 2].max()
     root = centers + np.stack([np.zeros(T), np.zeros(T), -R_obj - max_fz + gap], 1)
     hand_verts_w = hv[None] + root[:, None, :]

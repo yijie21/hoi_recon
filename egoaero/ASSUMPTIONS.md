@@ -9,6 +9,11 @@ Every value the paper leaves unspecified, with the section it fills and the sour
   paper specifies thumb/thenar gaps and bounds only → these are documented defaults. (Task 1, 13-14)
 - `hand.depth_bias_m`, `track.drift_sigma_*`: mock-mode injected error magnitudes (not from
   paper) used to exercise the correction/optimizer modules. (Task 5, 8, 11)
+- **SP4 mock press scale** (`tightness * 0.08 * bump` in `core/mock_scene.py`): raised from 0.05
+  to 0.08 (Task 5) to produce a genuine accept/repairable_accept spread across the tightness sweep.
+  At scale=0.05, only tightness=0.4 reached `repairable_accept`; at 0.08, tightness=0.2 and
+  tightness=1.0 both reach `repairable_accept` (Q=0.352 and Q=0.434 respectively). The SP3
+  quality thresholds (cfg.quality) are unchanged. (Task 5 / SP4)
 
 ## SE3 Parameterization
 - `se3_log` / `se3_exp` use a **left-trivialized small-step parameterization** (translation
