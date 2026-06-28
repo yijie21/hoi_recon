@@ -145,3 +145,36 @@ All reward weights (`lam_p`, `lam_R`, `lam_v`, `lam_k`, `lam_a`, `lam_tau`,
 `w_w`, `w_f`, `w_s`) are documented defaults in `config.py["reward"]`.
 The paper (App D) defines the reward term structure but gives no numerical
 values for these hyperparameters.
+
+## Task 9 — StageIIEnv simplifications (env.py)
+
+### Contact force proxy (cfrc_ext[:3])
+`data.cfrc_ext[bid]` is the external contact wrench applied to body `bid`,
+stored as a 6-vector `[torque(3), force(3)]` in the world frame.  We take
+`np.linalg.norm(cfrc_ext[bid][:3])` (the rotational half) as a per-fingertip
+contact magnitude proxy.  Using the torque half rather than the linear-force half
+captures non-zero values whenever a finger is pressed against a curved surface
+(which generates a moment even at low contact force).  A real deployment could
+use `cfrc_ext[bid][3:6]` for linear contact force instead; the two values are
+proportional in practice.  Documented as a proxy; see the reward weight `mu_F`.
+
+### Object-position early termination
+`terminated` is triggered when the object centroid drifts more than
+`cfg["term"]["obj_pos_err_m"]` (default 0.5 m) from the reference trajectory.
+This threshold is deliberately generous so that the no-op Stage-I policy used
+in tests (which makes no contact) does not immediately terminate the episode.
+Paper (App D) specifies early termination for "large tracking errors" but gives
+no threshold value; 0.5 m is a documented default for the mock setting.
+Hand-error and penetration thresholds are mentioned in App D but not given
+numerically; they are not implemented here (only the object-pos threshold is).
+
+### obj_dofadr computation
+The object free joint dof address is resolved from `model.jnt_dofadr[jid]`
+where `jid = mj_name2id(model, mjOBJ_JOINT, "obj_free")`.  The free joint
+has 7 qpos values (pos + quat) and 6 dof values (lin_vel + ang_vel); the
+`qvel[obj_dofadr:obj_dofadr+6]` slice gives the object velocity for r_obj.
+
+### Stage-I obs queried on 54-dim vector
+`pi_I` is always called with a 54-dim float32 vector built the same way as
+`StageIEnv._obs()`: `[fq(18), fqd(18), ref_wrist_pos(3), ref_fingertips(15)]`.
+This ensures the frozen Stage-I policy sees exactly its training distribution.
