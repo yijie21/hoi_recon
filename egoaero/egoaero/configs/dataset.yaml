@@ -1,7 +1,7 @@
 collection:
   n_target: 5          # accepted sequences to collect (CLI --n overrides)
   max_attempts: 40     # cap on capture attempts
-  num_frames: 32       # frames per synthetic clip
+  num_frames: 12       # frames per synthetic clip
 difficulty:
   w_occlusion: 1.0     # documented heuristic weights
   w_motion: 1.0

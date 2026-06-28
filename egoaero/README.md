@@ -265,18 +265,18 @@ egoaero-collect --out runs/egodexr --n 10 --max-attempts 80 --seed 7
 python -m egoaero.dataset.cli --out runs/egodexr --n 3 --max-attempts 8
 ```
 
-### Sample run (--n 3 --max-attempts 8 --seed 42)
+### Sample run (--n 2 --max-attempts 6)
 
-Over 8 attempts the loop yielded 1 accepted sequence (1 `repairable_accept`, 7 `recapture`).
+Over 6 attempts the loop yielded 2 accepted sequences (2 `repairable_accept`, 4 `recapture`).
 Summary:
 
 ```json
 {
-  "n_accepted": 1,
-  "n_attempts": 8,
-  "decisions": {"accept": 0, "repairable_accept": 1, "recapture": 7},
-  "difficulty_hist": {"1": 1, "2": 0, "3": 0, "4": 0, "5": 0},
-  "total_frames": 32,
+  "n_accepted": 2,
+  "n_attempts": 6,
+  "decisions": {"accept": 0, "repairable_accept": 2, "recapture": 4},
+  "difficulty_hist": {"1": 2, "2": 0, "3": 0, "4": 0, "5": 0},
+  "total_frames": 24,
   "capabilities": {"obj_state": true, "asset_free": true, "depth": true, "slam": true, "contact_eval": true}
 }
 ```
