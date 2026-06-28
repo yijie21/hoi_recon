@@ -68,6 +68,28 @@ _DEFAULTS: Dict[str, Any] = {
         "q_accept": 0.6,              # Q >= -> accept
         "q_repairable": 0.3,          # q_repairable <= Q < q_accept -> repairable_accept
     },
+    "reward": {                    # App-D reward weights (paper gives no constants; documented defaults)
+        "lam_p": 40.0,            # position error weight in r_wrist
+        "lam_R": 1.0,             # rotation error weight in r_wrist
+        "lam_v": 1.0,             # velocity error weight in r_wrist
+        "lam_k": 40.0,            # keypoint error weight in r_finger
+        "lam_a": 0.1,             # action-delta weight in r_smooth
+        "lam_tau": 0.001,         # torque-power weight in r_smooth
+        "w_w": 1.0,               # wrist-tracking weight in r_stage1
+        "w_f": 1.0,               # finger-tracking weight in r_stage1
+        "w_s": 0.1,               # smoothness weight in r_stage1
+        # Stage-II weights (App D §2.2; no paper constants)
+        "mu_p": 40.0,             # object position error weight
+        "mu_R": 1.0,              # object rotation error weight
+        "mu_v": 1.0,              # object velocity error weight
+        "mu_d": 100.0,            # contact-distance decay weight
+        "mu_F": 10.0,             # contact-force activation weight
+        "mu_delta": 0.1,          # residual-action penalty weight
+        "eta_I": 1.0,             # Stage-I contribution in r_stage2
+        "eta_o": 1.0,             # object pose contribution in r_stage2
+        "eta_c": 1.0,             # contact contribution in r_stage2
+        "eta_delta": 0.1,         # residual-action contribution in r_stage2
+    },
     "paths": {
         "third_party": os.path.join(_METHOD_ROOT, "third_party"),
         "checkpoints": os.path.join(_METHOD_ROOT, "checkpoints"),

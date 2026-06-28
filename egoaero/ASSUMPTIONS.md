@@ -115,3 +115,33 @@ implementation would use mesh-SDF queries.
 The Shadow Hand's 20 actuators include 2 wrist actuators (`rh_A_WRJ1`, `rh_A_WRJ2`).
 `finger_act_ids` is the list of the remaining 18 (those whose actuator name lacks 'WRJ').
 Verified on the composed model (mujoco 3.10).
+
+## Task 8 — StageIEnv simplifications (env.py)
+
+### Wrist orientation = identity
+`data.mocap_quat[task.wrist_mocap_id]` is set to `[1,0,0,0]` every step.
+The SP1 contract (`hand_mano.npz`) carries no wrist orientation: `ref` contains
+`wrist_pos` (T,3) but no wrist rotation.  The wrist reward uses identity rotations
+for both robot and reference (`R = R_h = I₃`), so the geodesic distance term is
+always zero and the wrist reward depends only on position.  The weld equality
+constraint aligns the forearm to the wrist_target body spatially; orientation
+would require a rotation trajectory which the contract does not provide.
+
+### Action space = finger actuators only (18-dim; no WRJ)
+`StageIEnv` exposes only the 18 finger actuators (`task.finger_act_ids`).
+Wrist motion is entirely dictated by the mocap reference.  The policy never
+controls WRJ1/WRJ2 directly.
+
+### Tendon-driven finger actuators (FFJ0, MFJ0, RFJ0, LFJ0)
+Four of the 18 finger actuators are tendon-type (`mjtTrn.mjTRN_TENDON`).
+Their `actuator_trnid` is a tendon index, not a joint index.  The observation
+uses the first joint in each tendon's wrap path (resolved via
+`model.tendon_adr[trnid]` → `model.wrap_objid[adr]`) to obtain qpos/qvel.
+This reports the first coupled joint (e.g. FFJ2 for rh_A_FFJ0) rather than
+a virtual "tendon position", which is the closest single-DoF proxy.
+
+### Reward config defaults
+All reward weights (`lam_p`, `lam_R`, `lam_v`, `lam_k`, `lam_a`, `lam_tau`,
+`w_w`, `w_f`, `w_s`) are documented defaults in `config.py["reward"]`.
+The paper (App D) defines the reward term structure but gives no numerical
+values for these hyperparameters.
