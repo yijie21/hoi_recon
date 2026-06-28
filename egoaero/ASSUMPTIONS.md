@@ -176,3 +176,26 @@ has 7 qpos values (pos + quat) and 6 dof values (lin_vel + ang_vel); the
 `pi_I` is always called with a 54-dim float32 vector built the same way as
 `StageIEnv._obs()`: `[fq(18), fqd(18), ref_wrist_pos(3), ref_fingertips(15)]`.
 This ensures the frozen Stage-I policy sees exactly its training distribution.
+
+## Task 11 — evaluate.py (rollout, App-H metrics, ablation)
+
+### Ej = Eft = fingertip error
+App-H defines four metrics: Er (rotation), Et (translation), Ej (joint position),
+Eft (fingertip position).  For the substitute Shadow Hand the SP1 contract exposes
+only five fingertip keypoints (`fingertips_h[T,5,3]`); there is no full per-joint
+robot↔human correspondence defined.  Therefore both Ej and Eft are computed as
+`mean_fingertip_error(rollout_fingertips, ref["fingertips_h"])`.  In a real setting
+Ej would use all robot joint positions matched against MANO joint positions; that
+requires a joint correspondence table the contract does not carry.
+
+### wo_contact_opt ablation — documented placeholder
+The `wo_contact_opt` condition requires a second reconstruction run produced with
+stage-6 contact optimisation disabled (`--stages 0-5,7` at the CLI level, Task 12).
+When `ablation()` is called without such a run dir, the function reuses the `full`
+result and logs a WARNING.  The Task-12 CLI is responsible for wiring the separate
+run dir and passing it here.
+
+### _obj_pose() returns quaternion, not rotation matrix
+`StageIIEnv._obj_pose()` returns `(pos[3], quat[4])`.  `rollout()` converts to
+`R[3,3]` via `mujoco.mju_quat2Mat` immediately after the env step so that the
+caller receives the (T,3,3) array documented in the task contract.
