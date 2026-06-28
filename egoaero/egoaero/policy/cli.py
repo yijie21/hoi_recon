@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 
 
 def _policy_cfg() -> dict:
@@ -60,7 +61,7 @@ def _cmd_eval(args: argparse.Namespace) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        prog="egoaero-policy",
+        prog=os.path.basename(sys.argv[0]),
         description="EgoAERO SP2 — two-stage residual RL policy",
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
