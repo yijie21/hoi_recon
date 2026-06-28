@@ -258,7 +258,7 @@ def StageIIEnv(task, pi_I):  # noqa: N802  (factory disguised as class)
     obj_quat[4]    : object orientation quaternion (w, x, y, z)
     obj_vel[6]     : object linear + angular velocity (free joint dof)
     hod[5]         : per-finger fingertip-to-object-centre distance
-    f_contact[5]   : per-finger contact force magnitude (via cfrc_ext[:3] proxy)
+    f_contact[5]   : per-finger contact force magnitude (via cfrc_ext[3:6] linear component)
 
     Action (18-dim float32)
     -----------------------
@@ -376,16 +376,16 @@ def StageIIEnv(task, pi_I):  # noqa: N802  (factory disguised as class)
             return self.data.qvel[_obj_dadr: _obj_dadr + 6].copy()
 
         def _contact_forces(self) -> np.ndarray:
-            """Per-finger contact force magnitude via body cfrc_ext[:3] (torque proxy).
+            """Per-finger contact force magnitude via body cfrc_ext[3:6] (linear force).
 
             NOTE: cfrc_ext[bid] is a 6-vector [torque(3), force(3)] in world frame.
-            We use the torque half [:3] as a magnitude proxy for contact activity,
-            following the SP2 spec.  See ASSUMPTIONS.md.
+            We use the linear force half [3:6] as the per-fingertip contact magnitude.
+            See ASSUMPTIONS.md.
             """
             f = np.zeros(5, dtype=np.float64)
             for i, fg in enumerate(_FINGER_ORDER):
                 bid = task.fingertip_body_ids[fg]
-                f[i] = float(np.linalg.norm(self.data.cfrc_ext[bid][:3]))
+                f[i] = float(np.linalg.norm(self.data.cfrc_ext[bid][3:6]))
             return f
 
         def _obs(self) -> np.ndarray:

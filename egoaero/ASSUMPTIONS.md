@@ -148,15 +148,13 @@ values for these hyperparameters.
 
 ## Task 9 — StageIIEnv simplifications (env.py)
 
-### Contact force proxy (cfrc_ext[:3])
+### Contact force proxy (cfrc_ext[3:6])
 `data.cfrc_ext[bid]` is the external contact wrench applied to body `bid`,
 stored as a 6-vector `[torque(3), force(3)]` in the world frame.  We take
-`np.linalg.norm(cfrc_ext[bid][:3])` (the rotational half) as a per-fingertip
-contact magnitude proxy.  Using the torque half rather than the linear-force half
-captures non-zero values whenever a finger is pressed against a curved surface
-(which generates a moment even at low contact force).  A real deployment could
-use `cfrc_ext[bid][3:6]` for linear contact force instead; the two values are
-proportional in practice.  Documented as a proxy; see the reward weight `mu_F`.
+`np.linalg.norm(cfrc_ext[bid][3:6])` (the linear force half) as the per-fingertip
+contact force magnitude. This is the physically correct component representing
+the magnitude of the linear contact force acting on the fingertip. See the reward
+weight `mu_F` in the Stage-II reward configuration.
 
 ### Object-position early termination
 `terminated` is triggered when the object centroid drifts more than
