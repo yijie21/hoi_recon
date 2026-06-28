@@ -218,13 +218,98 @@ The two-stage pipeline runs end-to-end and trains in ~107s, but at this demonstr
 
 ---
 
+## SP4 — EgoDex-R dataset + collection loop
+
+SP4 implements the **closed-loop dataset collection** described in Section 3 / Appendix F of the
+EgoAERO paper: a synthetic capture source drives the reconstruction pipeline, the online quality
+assessor (SP3 stage 8) issues a decision, and accepted sequences are written into a mock EgoDex-R
+dataset directory.
+
+### Closed loop
+
+```
+synthetic_source (clip) -> run_pipeline -> stage8_quality ->
+    accept          => write_sequence + increment n_accepted
+    repairable_accept => write_sequence + increment n_accepted
+    recapture       => discard, next attempt
+```
+
+The loop terminates when `n_accepted >= n_target` or `max_attempts` is exhausted.
+
+### App-F per-sequence schema (Appendix F fields)
+
+Each accepted sequence is written to `<out>/<seq_id>/` and contains:
+
+| File | Contents |
+|------|----------|
+| `metadata.json` | `seq_id`, `task_description`, `manipulated_object`, `relational_objects`, `difficulty` (1–5), `decision`, `frames` |
+| `quality.json` | Full SP3 quality report: `decision`, `Q`, `R_after`, `B_repair`, `U_unresolved`, `per_finger` |
+| `hand_mano.npz` | MANO verts `(T,778,3)` + joints `(T,21,3)` in table frame |
+| `object_traj.npz` | Object SE3 trajectory `(T,4,4)` in table frame |
+| `object_mesh.obj` | Reconstructed object mesh |
+| `contact.npz` | Contact mask `(T,778)` |
+
+A dataset-level `summary.json` is written at `<out>/summary.json` with fields:
+`n_accepted`, `n_attempts`, `decisions` (count per label), `difficulty_hist`, `total_frames`, `capabilities`.
+
+### Usage
+
+```bash
+# collect 5 accepted sequences (default), up to 40 attempts
+egoaero-collect --out runs/egodexr
+
+# override n and max-attempts
+egoaero-collect --out runs/egodexr --n 10 --max-attempts 80 --seed 7
+
+# or invoke without install
+python -m egoaero.dataset.cli --out runs/egodexr --n 3 --max-attempts 8
+```
+
+### Sample run (--n 3 --max-attempts 8 --seed 42)
+
+Over 8 attempts the loop yielded 1 accepted sequence (1 `repairable_accept`, 7 `recapture`).
+Summary:
+
+```json
+{
+  "n_accepted": 1,
+  "n_attempts": 8,
+  "decisions": {"accept": 0, "repairable_accept": 1, "recapture": 7},
+  "difficulty_hist": {"1": 1, "2": 0, "3": 0, "4": 0, "5": 0},
+  "total_frames": 32,
+  "capabilities": {"obj_state": true, "asset_free": true, "depth": true, "slam": true, "contact_eval": true}
+}
+```
+
+### Honest scope
+
+This is a **mock reproduction** of the EgoDex-R collection loop:
+
+- **Capture source**: fully synthetic NumPy clips — NOT FastUMI-Ego hardware or any real egocentric
+  camera. The `tightness` parameter sweeps a `mock_tightness` knob in `core/mock_scene.py` (scale 0.08)
+  that shifts the procedural hand-object penetration, producing a genuine spread of quality decisions
+  across the acceptance threshold.
+- **Dataset scale**: each run collects a handful of mock sequences. The paper's EgoDex-R dataset
+  contains **4.3M frames / 5,600 sequences** captured with real FastUMI-Ego hardware — that scale
+  and hardware are not reproduced here.
+- **Difficulty rating**: a 4-term heuristic over `occlusion`, `obj_motion_m`, `R_after` (residual
+  penetration/gap), and `contact_richness`. The paper uses an MLLM judge for difficulty annotation;
+  this is a documented heuristic substitute.
+- **Task descriptions**: templated natural-language strings from a fixed vocabulary. Not from the paper's
+  annotation pipeline.
+- The mock_tightness press scale 0.08 was tuned to produce genuine `repairable_accept` outputs across
+  the tightness range; lower tightness clips typically yield `recapture`. The SP3 quality thresholds
+  are unchanged (q_accept=0.6, q_repairable=0.3).
+
+---
+
 ## SP2 / SP3 / SP4 roadmap
 
 | Sprint | Topic | Status |
 |--------|-------|--------|
 | SP2 | RL contact policy (two-stage PPO, Shadow Hand, App-D rewards/App-H metrics) | Done |
 | SP3 | Online quality assessment (App E accept/repairable/recapture) | Done |
-| SP4 | Dataset integration (Ego4D, EPIC-Kitchens egocentric clips) | Planned |
+| SP4 | EgoDex-R dataset collection loop (egoaero-collect CLI, mock mini-dataset) | Done |
 
 ---
 

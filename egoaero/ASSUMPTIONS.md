@@ -212,6 +212,44 @@ run dir and passing it here.
 `R[3,3]` via `mujoco.mju_quat2Mat` immediately after the env step so that the
 caller receives the (T,3,3) array documented in the task contract.
 
+## SP4 — EgoDex-R dataset collection loop (App F)
+
+### Difficulty heuristic (difficulty.py)
+App F annotates each accepted sequence with a difficulty rating 1–5.  The paper uses an MLLM judge
+for annotation; this implementation uses a 4-term heuristic:
+`D = clip(round(raw * 4 + 1), 1, 5)` where
+`raw = w_occ * occlusion + w_mot * obj_motion_m + w_res * R_after - w_con * contact_richness`,
+normalized to [0,1] by `max(raw, eps)`.  Default weights: `w_occlusion=1.0, w_motion=1.0,
+w_residual=1.0, w_contact=1.0` (documented defaults; paper gives no values).  (SP4 Task 2)
+
+### Synthetic capture source (capture.py)
+The paper's collection loop ingests clips from FastUMI-Ego hardware (5,600 real sequences,
+4.3M frames).  SP4 substitutes a fully synthetic NumPy source: `synthetic_source(n, seed,
+num_frames, tightness_min, tightness_max)` generates `n` clips with uniformly-spaced `tightness`
+values in [tightness_min, tightness_max].  `tightness` controls the `mock_tightness` knob in
+`core/mock_scene.py` (scale 0.08), which shifts the procedural hand-object penetration — low
+tightness yields `recapture`, high tightness yields `repairable_accept`.  This is a documented
+heuristic substitute for real capture hardware.  (SP4 Task 4)
+
+### Task description templating (capture.py)
+Each synthetic clip carries a `task_description` string and object labels drawn from a small
+fixed vocabulary (objects: cup, bottle, scissors, screwdriver, apple; tasks: "pick up the {obj}",
+"place the {obj} on the tray", "hand over the {obj}", "open the {obj}", "pour using the {obj}").
+These are mock annotations — not from the paper's MLLM annotation pipeline.  (SP4 Task 4)
+
+### Dataset scale substitution
+EgoDex-R (paper) contains 5,600 sequences and 4.3M frames captured with FastUMI-Ego hardware.
+SP4 produces a mock mini-dataset of a handful of sequences from the synthetic source.  No real
+footage, no real hardware, no scale parity with the paper's numbers.  (SP4 Task 6)
+
+### egoaero-collect CLI (dataset/cli.py)
+`egoaero-collect --out <dir> --n <K> [--max-attempts M] [--seed S]` drives `run_collection`
+with config from `configs/dataset.yaml` (defaults: `n_target=5`, `max_attempts=40`,
+`num_frames=32`).  The `--n` and `--max-attempts` flags override the yaml values; `--seed`
+controls the synthetic source RNG.  Registered as a console script in `pyproject.toml`.  (SP4 Task 6)
+
+---
+
 ## Task 12 — CLI, console scripts, and real-run metrics
 
 ### Console scripts
