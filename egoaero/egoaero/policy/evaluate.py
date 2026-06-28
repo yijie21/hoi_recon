@@ -70,9 +70,8 @@ def rollout(task, pi_I, pi_R, seed: int = 0) -> dict:
             act, _ = pi_I.predict(obs, deterministic=True)
             return act
     else:
-        nu = task.model.nu
         def _pi_I(obs):  # noqa: E306
-            return np.zeros(nu, dtype=np.float32)
+            return np.zeros(len(task.finger_act_ids), dtype=np.float32)
 
     env = StageIIEnv(task, _pi_I)
     obs, _ = env.reset(seed=seed)

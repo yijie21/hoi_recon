@@ -26,3 +26,19 @@ def test_evaluate_returns_metrics(tmp_path):
     m = evaluate(task, pi_I, pi_R, seeds=(0,))
     assert set(["Er", "Et", "Ej", "Eft", "SR"]).issubset(m)
     assert 0.0 <= m["SR"] <= 1.0
+
+
+def test_evaluate_none_policies(tmp_path):
+    """Regression: evaluate(task, None, None) should not raise action dim mismatch."""
+    pytest.importorskip("stable_baselines3")
+    pytest.importorskip("torch")
+    pytest.importorskip("mujoco")
+    from tests.policy.test_env_stage1 import _setup
+    from egoaero.policy.evaluate import evaluate
+
+    task = _setup(tmp_path)
+    # Call evaluate with both policies None (zero actions)
+    # This exercises the pi_I is None fallback which should use len(task.finger_act_ids)
+    m = evaluate(task, None, None, seeds=(0,))
+    assert set(["Er", "Et", "Ej", "Eft", "SR"]).issubset(m)
+    assert 0.0 <= m["SR"] <= 1.0
