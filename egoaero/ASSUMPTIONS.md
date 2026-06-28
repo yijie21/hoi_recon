@@ -87,3 +87,31 @@ alpha=1.0, beta=0.5, gamma=1.0, pen_ref=50000mm & gap_ref=40mm (R_after normaliz
 obj_move_thresh_m_per_frame=0.01 m/frame (U_unresolved), q_accept=0.6 / q_repairable=0.3 (decision thresholds).
 U_unresolved heuristic (paper names but does not define): fraction of active frames where the object
 is moving yet NO finger has recoverable contact. These are reasonable starting defaults, not paper values; on the synthetic mock clip the high procedural penetration yields a lower Q (repairable_accept/recapture) — an honest reflection of the mock scene, not a defect.
+
+## SP2 — Task builder (policy/task.py)
+
+### Mocap-driven wrist (task.py / Task 7)
+The vendored `right_hand.xml` has a FIXED forearm (`rh_forearm`) with no floating joint.
+To let the hand track the moving reconstructed wrist trajectory, we add a `mocap=True`
+body `wrist_target` to the worldbody and pin `rh_forearm` to it via a WELD equality
+(`mujoco.mjtEq.mjEQ_WELD`).  At rollout time the caller writes
+`data.mocap_pos[task.wrist_mocap_id]` / `data.mocap_quat[task.wrist_mocap_id]` each step;
+MuJoCo's equality solver kinematically follows.  This is simpler than a free-floating
+wrist base (no extra actuators / control signal) while still letting the hand move in world space.
+
+### Scene composition via MjSpec (not XML include)
+We use `mujoco.MjSpec.from_file(hand_xml)` which resolves the hand's own `meshdir` relative
+to the XML path, then programmatically add the table, mocap body, weld, and object.
+The alternative (XML `<include>`) would clash with `<worldbody>` already present in
+`right_hand.xml`; MjSpec avoids the conflict entirely.
+
+### Contact-active heuristic (load_reference)
+The contract carries no per-finger vertex groups so `contact_active[t]` is approximated
+by a sphere proxy: fingertip is "active" if its distance to the object centroid departs
+from the mesh bounding-sphere radius by < 20 mm.  This is a documented default; real
+implementation would use mesh-SDF queries.
+
+### finger_act_ids filter
+The Shadow Hand's 20 actuators include 2 wrist actuators (`rh_A_WRJ1`, `rh_A_WRJ2`).
+`finger_act_ids` is the list of the remaining 18 (those whose actuator name lacks 'WRJ').
+Verified on the composed model (mujoco 3.10).
