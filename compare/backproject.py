@@ -106,7 +106,29 @@ def load_hort():
         yield img.copy(), f"HORT  frame {t+1}/{T}  (model 224 crop, un-flipped)"
 
 
-LOADERS = {"rc": load_rc, "forehoi": load_forehoi, "hort": load_hort}
+def load_daid():
+    # do-as-i-do: scene in OpenCV camera frame; project onto its own processed frames with the
+    # per-frame pointmap intrinsics. Object index i corresponds to video frame_idx = i+1.
+    root = "do-as-i-do/reconstruction/wild6"
+    z = np.load("compare/scenes/do_as_i_do_wild6.npz", allow_pickle=True)
+    hv, hf = z["hand_verts"], z["hand_faces"].astype(np.int32)
+    ov, of, op = z["obj_verts"], z["obj_faces"].astype(np.int32), z["obj_poses"]
+    T = len(op)
+    Kref = np.load(f"{root}/all_frames/000025_intrinsics.npy").astype(np.float64)
+    for t in range(T):
+        fidx = t + 1
+        img = cv2.imread(f"{root}/all_frames/{fidx:06d}.png")
+        if img is None:
+            continue
+        kf = f"{root}/all_frames/{fidx:06d}_intrinsics.npy"
+        K = np.load(kf).astype(np.float64) if os.path.exists(kf) else Kref
+        ow = ov @ op[t][:3, :3].T + op[t][:3, 3]
+        uo, zo = project(K, ow); draw_mesh(img, uo, zo, of, OBJ)
+        uh, zh = project(K, hv[t]); draw_mesh(img, uh, zh, hf, HAND)
+        yield img, f"do-as-i-do  frame {t+1}/{T}"
+
+
+LOADERS = {"rc": load_rc, "forehoi": load_forehoi, "hort": load_hort, "daid": load_daid}
 
 
 def main(method, outdir):

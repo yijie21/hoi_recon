@@ -12,6 +12,7 @@ on its own. This `compare/` folder provides a **method-agnostic viser viewer** +
 | render_and_compare (CHOIR) | `render_and_compare/` | ✅ mock runs; real = heavy 2-env backends | `forehoi` (numpy mock) | optimization, backends wired |
 | egoaero (EgoAERO) | `egoaero/` | ✅ mock only (real perception stubbed) | base / `forehoi` | no (GT-driven mock) |
 | **ForeHOI** | `forehoi/` | ✅ **fully runnable** (feed-forward video) | `forehoi` | **yes** |
+| **do-as-i-do** | `do-as-i-do/` | ✅ **fully runnable** (SAM3→SAM-3D→MoGe→HaWoR→TAPIR→guided-diffusion) | `daid` | **yes** |
 | **HORT** | `hort/` | ✅ **fully runnable** (feed-forward, 1 image) | `hort` | **yes** |
 | HOLD | `hold/` | ⚠️ env ready; real recon **blocked** (account-walled data) | `hold` | yes (when data unblocked) |
 | EasyHOI | `easyhoi/` | ⚠️ hand + object shape run; **fusion/alignment blocked** (LISA + afford-diffusion envs) | `easyhoi` (+`instantmesh`) | yes (hand + shape) |
@@ -58,14 +59,15 @@ $PY compare/adapters/egoaero_to_scene.py  /tmp/egoaero_viz/run                  
 $PY compare/adapters/easyhoi_to_scene.py  easyhoi/data_run                       compare/scenes/easyhoi.npz
 ```
 
-## Same-clip comparison (wild6.mp4) ✅ — all 4 methods REAL
+## Same-clip comparison (wild6.mp4) ✅ — 5 methods REAL
 
-All four methods reconstruct the **same** clip (`egoaero/assets/wild6.mp4`, a hand grasping a
+Five methods reconstruct the **same** clip (`egoaero/assets/wild6.mp4`, a left hand grasping a
 ~15 cm bottle) with real perception → directly comparable:
 
 | Scene | Method on wild6 | Object output | Object world size |
 |---|---|---|---|
-| `render_and_compare_wild6.npz` | render_and_compare (CHOIR real: MoGe+WiLoR+SAM2+HaMeR+SAM-3D, 74f) | textured mesh, but **~5× oversized** | **0.813 m** ⚠️ |
+| `render_and_compare_wild6.npz` | render_and_compare (CHOIR real: MoGe+WiLoR+SAM2+HaMeR+SAM-3D, 74f) | textured mesh (object-scale + hand-scale fixed, see below) | 0.188 m |
+| `do_as_i_do_wild6.npz` | do-as-i-do (SAM3+SAM-3D+MoGe+HaWoR+guided-diffusion, 293f) | **coherent bottle mesh, 6-DoF tracked** | 0.121 m |
 | `hort_wild6.npz`    | HORT, per-frame on 33 frames | sparse point cloud (no temporal consistency; hand-centred, see below) | 0.154 m |
 | `easyhoi.npz`       | EasyHOI, **single snapshot (T=1)** — see below | shape mesh, **pose not aligned** | 0.120 m |
 | `forehoi_wild6.npz` | ForeHOI, 12 frames           | **dense coherent bottle mesh (186K verts)** | 0.251 m |
@@ -151,9 +153,14 @@ $PY compare/backproject.py hort    compare/backproj/hort     # HORT's native 224
 ```
 Each writes `overlay.mp4` + a 6-frame `contact_sheet.png`.
 
+```bash
+$PY compare/backproject.py daid    compare/backproj/daid     # do-as-i-do full-frame 720x1280, 293f
+```
+
 | Method | Target | Hand alignment | Object alignment |
 |---|---|---|---|
 | render_and_compare | full frame 720x1280 (original) | on the hand; slightly small/offset a few frames | mesh tracks the bottle through the grasp — solid |
+| **do-as-i-do** | full frame 720x1280 (original) | **on the hand (HaWoR)** | **mesh 6-DoF tracks the bottle through grasp+tilt** — solid |
 | ForeHOI | its 518² processed frames | **very tight** | on the bottle in grasp frames (letterboxed square view) |
 | HORT | its 224 crop only | **excellent** (WiLoR) | **sparse noisy point cloud**, floats around grasp |
 
@@ -176,6 +183,44 @@ fitting *size* to either would mis-scale. Instead: scale from the **canonical ha
 (0.19 m -> s=1.32) and translate to match the projected hand centroid to the **box centre** (reliable).
 Result: span 0.144->0.190 m, centroid-vs-box error **164->35 px**. Writes `arrays_handfit.npz`
 (backproject.py + rc_to_scene.py prefer it). Before/after: `compare/backproj/rc_handfit_before_after.png`.
+
+## do-as-i-do — setup + run notes (reproducible)
+
+do-as-i-do's reconstruction (`do-as-i-do/reconstruction/`) is a 7-stage pipeline
+(SAM3 seg → SAM-3D mesh → MoGe pointmaps → HaWoR hands → GeoCalib gravity → TAPIR velocity →
+guided-diffusion object-pose tracking → hand-anchored translation/scale opt). It needs a
+**≥32 GB VRAM window** and gated `facebook/sam3`. Built as a single `daid` conda env by **copying
+`forehoi`** (reuses its compiled pytorch3d/kaolin/nvdiffrast/moge/spconv for sm_89) and layering the
+rest. Key gotchas solved (all matching the authors' `env/sam3d.yml` pins):
+
+- **utils3d**: the SAM-3D fork needs the old `utils3d==0.0.2` API (`utils3d.torch.*`, flat `depth_edge`);
+  PyPI `utils3d` is an unrelated package, so install the git commit `d790d33` (pre-`maps`-refactor).
+- **moge**: must be **`moge==1.0.0`** (git commit `a8c3734`) — it uses `utils3d.torch` (the 2.x moge
+  uses `utils3d.pt` and conflicts). Reuse `moge-vitl` v1 weights.
+- **jax/chex**: TAPIR needs `jax==0.4.30 jaxlib==0.4.30 chex==0.1.86 ml-dtypes==0.4.1` (numpy-1.26 safe).
+- **weights**: SAM-3D reused from `/workspace/code/ForeHOI/checkpoints` (symlinked, saves 12 GB);
+  HaWoR (`hawor.ckpt`,`infiller.pt`,`detector.pt`) + TAPIR (`bootstapir_v2`) downloaded (ungated);
+  MANO_RIGHT reused; **`_DATA/data/mano_mean_params.npz`** copied from a HaMeR data dir.
+- **MANO_LEFT** (wild6 is left-handed, not on box): **generated by x-mirroring MANO_RIGHT**
+  (v_template/J negate-x, posedirs output-x negate + pose-feature conjugation, faces flip; shapedirs
+  left buggy to match the official file that HaWoR's `fix_shapedirs` corrects). **Verified exact**:
+  0.0000 mm vs mirror of the right hand through HaWoR's own `run_mano_left` on random poses+betas.
+- **SAM3 "left hand" text prompt returns empty** on this clip → (a) `generate_mesh_sam3d.py` patched
+  to skip empty masks (the hand is meshed by HaWoR, not SAM-3D); (b) the stage-4 scale-opt hand mask
+  is **generated from the HaWoR hand-mesh projection** (verified to land on the real hand) so the
+  hand-anchored pointmap scale resolves.
+- **Fast-SAM3D tracker**: dropped `--enable_ss_cache`/`--torch_compile` (they force distilled
+  `ss_generator_faster` weights we don't have; result is identical, just slower).
+
+Run recipe: `scratchpad/run_daid_wild6.sh` (full, VRAM-guarded) or `resume_daid_wild6.sh`
+(from TAPIR). Output → `wild6/obj_tracking_out/white_bottle/combined_visualization/layout_camera_frame_optimized.json`
+(293-frame object 6-DoF, OpenCV cam frame) + `white_bottle.obj` + `wild6/wild6/all_hand_meshes.npz`.
+Adapter → scene: `compare/adapters/do_as_i_do_to_scene.py do-as-i-do/reconstruction/wild6 compare/scenes/do_as_i_do_wild6.npz`.
+
+**Result (wild6):** object bottle **0.121 m** (real ~0.15 m), hand span 0.174 m, hand–object depth
+gap 2 cm (co-located). Backprojection: hand on-target, object mesh 6-DoF tracks the bottle through
+grasp + tilt — competitive with render_and_compare and ForeHOI, and (unlike HORT) a coherent tracked
+object rather than a per-frame cloud. `compare/backproj/daid/`, 5-way: `compare/compare_wild6_5way.png`.
 
 ## Caveats for a *fair* comparison
 

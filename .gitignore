@@ -32,3 +32,4 @@ wget-log
 !compare/scenes/*.npz
 !egoaero/viz_output/
 !egoaero/viz_output/*.npz
+/do-as-i-do/
