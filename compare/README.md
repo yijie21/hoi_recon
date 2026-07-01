@@ -95,6 +95,14 @@ reliably, `hort_seq_to_scene.py` now **recenters each frame on the hand centroid
 same shift from hand *and* object → grasp preserved). Result: centroid range `1.154 m → 0`, hand box
 fraction `0.15 → 0.82`. Raw frames still available via `--no-recenter`.
 
+### HORT reconstructs a right hand for a left-handed clip (found + fixed)
+HORT (like WiLoR/HaMeR) only models **right** hands. Its demo detects a left hand, **horizontally
+flips the image**, reconstructs a right hand, and exports it in that mirrored frame **without flipping
+back** (and the JSON stores no flip flag). So wild6 (a **left** hand) came out as a mirror-image right
+hand, object on the wrong side. Fix in `hort_seq_to_scene.py --mirror`: negate x on hand **and** object
+(same reflection → grasp preserved) and reverse MANO face winding (a reflection inverts triangle
+orientation). The wild6 scene is now rebuilt with `--mirror` → true left hand.
+
 ### EasyHOI is a single snapshot (not 4D)
 EasyHOI is a **single-image** prior-guided method — `easyhoi.npz` has **T=1**. It reconstructs one
 frame's hand+object shape, not a temporal trajectory, so it can't be scrubbed over time like the
