@@ -162,6 +162,21 @@ that crop (un-flipped to the true left hand); a full-frame HORT overlay would ne
 detection box. ForeHOI frames are letterboxed because it squares the portrait video. The mesh is
 rasterized painter's-algorithm with cv2 (depth-sorted alpha triangles) — no GL, runs headless.
 
+### render_and_compare hand scale (found + fixed, Option 1)
+The wild6 backprojection first showed the hand **too small + offset**: its longest MANO span was
+**0.144 m vs a real adult hand ~0.19 m (~0.77x)**, set at the WiLoR hand stage (identical stage2->stage7,
+so not a late-stage bug). Monocular hand metric scale is inherently ambiguous — accurate on clips
+where WiLoR's shape + MoGe's depth/focal agree, off on hard clips (wild6: left hand heavily occluded
+by the grasped bottle, portrait phone). The object is unaffected (anchored directly on MoGe depth).
+
+`compare/fit_hand_scale.py` applies a per-clip **global scale + translation** correction. NB the two
+obvious 2D targets are both unreliable on wild6: `kp2d` is garbage (WiLoR's 2D head scattered points
+across the frame, 15% out-of-frame) and the YOLO hand box is ~2.25x the hand (includes forearm), so
+fitting *size* to either would mis-scale. Instead: scale from the **canonical hand-size prior**
+(0.19 m -> s=1.32) and translate to match the projected hand centroid to the **box centre** (reliable).
+Result: span 0.144->0.190 m, centroid-vs-box error **164->35 px**. Writes `arrays_handfit.npz`
+(backproject.py + rc_to_scene.py prefer it). Before/after: `compare/backproj/rc_handfit_before_after.png`.
+
 ## Caveats for a *fair* comparison
 
 The scenes above are each method's **native demo on a different clip** (HORT→wild6 bottle,

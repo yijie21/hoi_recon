@@ -61,7 +61,10 @@ def draw_points(img, uv, color, r=2):
 def load_rc():
     root = "render_and_compare/runs/wild6_real"
     K = np.load(f"{root}/stage0_preprocess/arrays.npz")["intrinsics"].astype(np.float64)
-    a = np.load(f"{root}/stage7_contact_optim/arrays.npz", allow_pickle=True)
+    # prefer the hand-scale-corrected arrays (compare/fit_hand_scale.py) if present
+    fit = f"{root}/stage7_contact_optim/arrays_handfit.npz"
+    raw = f"{root}/stage7_contact_optim/arrays.npz"
+    a = np.load(fit if os.path.exists(fit) else raw, allow_pickle=True)
     hv, hf = a["hand_verts"], a["hand_faces"].astype(np.int32)
     ov, of, op = a["obj_verts"], a["obj_faces"].astype(np.int32), a["obj_poses"]
     frames = sorted(glob.glob(f"{root}/stage0_preprocess/frames/*.jpg"))
