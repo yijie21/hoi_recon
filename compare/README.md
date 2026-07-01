@@ -66,8 +66,8 @@ All four methods reconstruct the **same** clip (`egoaero/assets/wild6.mp4`, a ha
 | Scene | Method on wild6 | Object output | Object world size |
 |---|---|---|---|
 | `render_and_compare_wild6.npz` | render_and_compare (CHOIR real: MoGe+WiLoR+SAM2+HaMeR+SAM-3D, 74f) | textured mesh, but **~5× oversized** | **0.813 m** ⚠️ |
-| `hort_wild6.npz`    | HORT, per-frame on 33 frames | sparse point cloud (no temporal consistency) | 0.154 m |
-| `easyhoi.npz`       | EasyHOI, frame f0030         | shape mesh, **pose not aligned** | 0.120 m |
+| `hort_wild6.npz`    | HORT, per-frame on 33 frames | sparse point cloud (no temporal consistency; hand-centred, see below) | 0.154 m |
+| `easyhoi.npz`       | EasyHOI, **single snapshot (T=1)** — see below | shape mesh, **pose not aligned** | 0.120 m |
 | `forehoi_wild6.npz` | ForeHOI, 12 frames           | **dense coherent bottle mesh (186K verts)** | 0.251 m |
 
 ```bash
@@ -84,6 +84,21 @@ $PY compare/snapshot.py compare/compare_wild6_4way.png compare/scenes/render_and
 - **ForeHOI** — cleanest, most complete object mesh (0.251 m); strong all-round.
 - **HORT / EasyHOI** — object size close to true, but HORT's is a noisy per-frame cloud and EasyHOI's isn't pose-aligned.
 - **render_and_compare (combined/differentiable)** — better hand keypoint reproj (kp2d 4.9 px) but its differentiable object-pose **drifts off the hand** at some frames; not strictly better than the robust path here.
+
+### HORT depth-jitter + tiny-hand (found + fixed)
+HORT is per-frame feed-forward with **no temporal consistency**, and its *absolute* per-frame depth
+is noise: on wild6 the hand centroid swings **~1.15 m in z** frame-to-frame while x/y barely move.
+Two visible symptoms: (1) the whole HOI **teleports in depth** each frame; (2) that depth swing
+inflates the scene bbox ~6×, so the workbench normalizer **shrinks HORT's hand** to ~15 % of its box
+(other methods' hands are ~80 %). Since that absolute placement isn't something HORT estimates
+reliably, `hort_seq_to_scene.py` now **recenters each frame on the hand centroid** (subtracting the
+same shift from hand *and* object → grasp preserved). Result: centroid range `1.154 m → 0`, hand box
+fraction `0.15 → 0.82`. Raw frames still available via `--no-recenter`.
+
+### EasyHOI is a single snapshot (not 4D)
+EasyHOI is a **single-image** prior-guided method — `easyhoi.npz` has **T=1**. It reconstructs one
+frame's hand+object shape, not a temporal trajectory, so it can't be scrubbed over time like the
+others. It appears as a static pose in the workbench. (render_and_compare=74 f, ForeHOI=12 f, HORT=33 f.)
 
 ### The object-scale bug (found + fixed)
 The first same-clip run exposed a real failure: render_and_compare's object came out **0.813 m (~5×)**.
