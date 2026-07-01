@@ -39,6 +39,9 @@ def build_parser():
     p.add_argument("--hand", default=None,
                    choices=["hamer", "wilor", "hawor", "depthlift"])
     p.add_argument("--object", default=None, choices=["sam3d", "bundlesdf", "foundationpose"])
+    p.add_argument("--object-prompt", nargs=2, type=float, default=None, metavar=("X", "Y"),
+                   help="pixel (x,y) on the object for SAM2 (a user click); overrides the "
+                        "hand-box-centre heuristic — use when the hand HOLDS the object")
     p.add_argument("--depth", default=None,
                    choices=["moge", "da3", "vggt", "depth_anything_v2", "metric3d"])
     p.add_argument("--camera", default=None, choices=["vipe", "droid_slam"])
@@ -57,6 +60,8 @@ def main(argv=None):
     }
     if args.mock is not None:
         overrides["mock"] = args.mock
+    if args.object_prompt is not None:
+        overrides["object_prompt"] = list(args.object_prompt)
     cfg = load_config(args.config, overrides)
     if not cfg.mock and not cfg.video:
         log("real mode requires --video", "err")

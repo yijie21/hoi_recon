@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HOI reconstruction: render_and_compare (CHOIR) vs egoaero (EgoAERO)</title>
+<style>
+  :root{
+    --rc:#2563eb; --rc-bg:#eff5ff; --rc-bd:#bcd2fb;
+    --ea:#0d9488; --ea-bg:#eafaf7; --ea-bd:#a7e3da;
+    --ink:#1a1d24; --mut:#5b6472; --line:#e2e6ec; --bg:#f7f8fa; --card:#fff;
+    --warn:#b45309; --warn-bg:#fdf6ec;
+  }
+  *{box-sizing:border-box}
+  body{font:15px/1.62 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);background:var(--bg);margin:0}
+  .wrap{max-width:1180px;margin:0 auto;padding:30px 22px 90px}
+  h1{font-size:29px;margin:0 0 6px;letter-spacing:-.3px}
+  h2{font-size:22px;margin:44px 0 12px;padding-bottom:7px;border-bottom:2px solid var(--line)}
+  h3{font-size:17px;margin:26px 0 8px}
+  p{margin:10px 0}
+  code{font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    background:#eef1f5;padding:1px 5px;border-radius:4px}
+  .sub{color:var(--mut);font-size:15px;margin:2px 0 0}
+  .lead{font-size:16px;color:#333;max-width:90ch}
+  .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:20px;vertical-align:middle}
+  .pill.rc{background:var(--rc-bg);color:var(--rc);border:1px solid var(--rc-bd)}
+  .pill.ea{background:var(--ea-bg);color:var(--ea);border:1px solid var(--ea-bd)}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin:14px 0 0}
+  .legend div{display:flex;gap:8px;align-items:center;font-size:14px}
+  .sw{width:14px;height:14px;border-radius:3px;display:inline-block}
+  table{border-collapse:collapse;width:100%;margin:14px 0;background:var(--card);
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:14px}
+  th,td{padding:9px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+  th{background:#f0f2f6;font-weight:700;font-size:13px}
+  tr:last-child td{border-bottom:none}
+  td.feat{font-weight:600;width:18%;color:#2b3038}
+  .col-rc{background:var(--rc-bg)}
+  .col-ea{background:var(--ea-bg)}
+  thead th.col-rc{background:#dbe8fe;color:var(--rc)}
+  thead th.col-ea{background:#d4f3ed;color:var(--ea)}
+  .tldr{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .card.rc{border-top:4px solid var(--rc)} .card.ea{border-top:4px solid var(--ea)}
+  .card h3{margin-top:0}
+  ul{margin:8px 0;padding-left:20px} li{margin:4px 0}
+  .mono-s{font:12px/1.4 ui-monospace,Menlo,monospace;color:var(--mut)}
+  .note{background:var(--warn-bg);border:1px solid #f0dcb8;border-left:4px solid var(--warn);
+    border-radius:8px;padding:12px 15px;margin:14px 0;font-size:14px}
+  .note b{color:var(--warn)}
+  .same{background:#f0fbf3;border:1px solid #c5e9cf;border-left:4px solid #2f9e44;
+    border-radius:8px;padding:12px 15px;margin:14px 0;font-size:14px}
+  .map-arrow{color:var(--mut);font-size:12px}
+  .stagebadge{font:12px ui-monospace,Menlo,monospace;background:#eef1f5;border-radius:5px;padding:1px 6px;white-space:nowrap}
+  .yes{color:#2f9e44;font-weight:700} .no{color:#c92a2a;font-weight:700} .part{color:var(--warn);font-weight:700}
+  nav.toc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 18px;margin:18px 0;font-size:14px;columns:2}
+  nav.toc a{color:var(--rc);text-decoration:none} nav.toc a:hover{text-decoration:underline}
+  .foot{margin-top:50px;color:var(--mut);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+  @media(max-width:720px){.tldr{grid-template-columns:1fr}nav.toc{columns:1}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>HOI&nbsp;reconstruction, side&nbsp;by&nbsp;side</h1>
+<p class="sub"><span class="pill rc">render_and_compare</span> &nbsp;a CHOIR reproduction &nbsp;·&nbsp; <span class="pill ea">egoaero</span> &nbsp;an EgoAERO reproduction &nbsp;— compared at the reconstruction-stage level.</p>
+
+<p class="lead">Both folders live under <code>hoi_recon/</code> and both reconstruct <b>4D hand–object interaction</b> (per-frame MANO hand + object geometry + 6-DoF object trajectory + contact) through a <b>9-stage, file-based, mock-runnable</b> pipeline. But they reproduce <b>different papers</b>, take <b>different inputs</b>, order their stages <b>differently</b>, and take <b>opposite stances</b> on how "real" the mock path is. This page maps them stage-by-stage and then digs into every meaningful difference.</p>
+
+<div class="legend">
+  <div><span class="sw" style="background:var(--rc)"></span> render_and_compare = <b>CHOIR</b> (Contact-aware 4D HOI Recon, render-and-compare spine)</div>
+  <div><span class="sw" style="background:var(--ea)"></span> egoaero = <b>EgoAERO</b> (asset-free egocentric recon, Sec 2.1 / App A–E)</div>
+</div>
+
+<nav class="toc">
+  <a href="#tldr">1. TL;DR — the five real differences</a><br>
+  <a href="#identity">2. Identity &amp; design intent</a><br>
+  <a href="#funcmap">3. Function map (the key table)</a><br>
+  <a href="#stages">4. Stage-by-stage detail</a><br>
+  <a href="#gating">5. Real-vs-mock philosophy</a><br>
+  <a href="#object">6. Object reconstruction</a><br>
+  <a href="#hand">7. Hand &amp; contact</a><br>
+  <a href="#frames">8. Coordinate frames &amp; units</a><br>
+  <a href="#contract">9. Contract / outputs</a><br>
+  <a href="#backends">10. Real backends referenced</a><br>
+  <a href="#faithful">11. Faithful vs stubbed</a><br>
+  <a href="#downstream">12. Downstream scope</a><br>
+  <a href="#shared">13. Shared DNA</a>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="tldr">1. TL;DR — the five real differences</h2>
+<div class="tldr">
+  <div class="card rc">
+    <h3><span class="pill rc">render_and_compare</span></h3>
+    <ul>
+      <li><b>Input:</b> monocular <b>RGB</b> video (depth is <i>estimated</i>, MoGe/DA3).</li>
+      <li><b>Viewpoint:</b> third-person primary (egocentric optional behind one hand interface).</li>
+      <li><b>Mock = error sandbox:</b> inject realistic per-stage perception error onto GT, then <b>real geometric refinement drives it back down</b>; stage 8 measures the drop.</li>
+      <li><b>Real backends are <span class="yes">wired</span></b> (lazy import, two conda envs, subprocess) and degrade gracefully — swap in weights and it runs.</li>
+      <li><b>Ends at reconstruction:</b> exports <b>pseudo-GT</b> for distilling a future feed-forward model. It is an error-characterization rig.</li>
+    </ul>
+  </div>
+  <div class="card ea">
+    <h3><span class="pill ea">egoaero</span></h3>
+    <ul>
+      <li><b>Input:</b> egocentric <b>RGB-D</b> (depth is a given channel).</li>
+      <li><b>Viewpoint:</b> egocentric-only (head-mounted, moving camera = ego motion).</li>
+      <li><b>Mock = GT-driven:</b> stages pass GT through with injected noise; only the <b>contact optimization</b> and <b>quality scoring</b> run real algorithms.</li>
+      <li><b>Real backends are <span class="no">hard-stubbed</span></b> — every real path <code>raise NotImplementedError</code> via <code>backends/real.py</code>; only mock runs today.</li>
+      <li><b>Reconstruction is step 1 of 4:</b> feeds a two-stage <b>RL policy</b>, an <b>online quality gate</b>, and a <b>dataset-collection loop</b> (SP2–SP4).</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="identity">2. Identity &amp; design intent</h2>
+<table>
+  <thead><tr><th>Attribute</th><th class="col-rc">render_and_compare</th><th class="col-ea">egoaero</th></tr></thead>
+  <tbody>
+    <tr><td class="feat">Paper reproduced</td><td class="col-rc"><b>CHOIR</b> — Contact-aware 4D HOI Reconstruction (arXiv:2605.20992). Reproduces the algorithmic <i>spine</i>, not a learned implicit field.</td><td class="col-ea"><b>EgoAERO</b> — asset-free egocentric HOI reconstruction, <b>Sec 2.1 / App A–E</b> (Part A of a larger asset-free→sim→robot system).</td></tr>
+    <tr><td class="feat">Core thesis</td><td class="col-rc">coarse contact-agnostic init → generative spatial rectification → contact-aware joint optimization.</td><td class="col-ea">MLLM semantic init → asset-free object track+mesh → ego-motion compensation → adaptive contact optimization → online quality.</td></tr>
+    <tr><td class="feat">Design role</td><td class="col-rc"><b>Teacher / error-characterization rig</b> — every stage's error is measurable; cleaned outputs become pseudo-GT + distillation targets.</td><td class="col-ea"><b>Faithful-where-specified reproduction</b> + mock-runnable; the front end of a closed-loop data-collection system.</td></tr>
+    <tr><td class="feat">Hand model</td><td class="col-rc">MANO (HaMeR). MANO-free <code>depthlift</code> fallback (28×28 depth grid).</td><td class="col-ea">MANO (HaWoR). Mock = procedural 778-vert hand with finger-chain weights.</td></tr>
+    <tr><td class="feat"># stages</td><td class="col-rc">9 (<span class="stagebadge">stage0…stage8</span>)</td><td class="col-ea">9 (<span class="stagebadge">stage0…stage8</span>)</td></tr>
+    <tr><td class="feat">Default mode</td><td class="col-rc"><code>mock=True</code>; <code>--real</code> to switch.</td><td class="col-ea"><code>mock=True</code>; real path raises.</td></tr>
+    <tr><td class="feat">Runtime</td><td class="col-rc">numpy + torch; real backends across <b>two conda envs</b> via subprocess.</td><td class="col-ea">pure <b>numpy</b> (mock); no learned model invoked anywhere today.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="funcmap">3. Function map — same sub-problems, different stage order</h2>
+<p>This is the most important table. The two pipelines solve the <b>same HOI sub-problems</b>, but assign them to <b>different stage indices</b> and run them in a <b>different order</b> (e.g. render_and_compare does hand→object→align; egoaero does object-track→mesh→hand→ego-comp). Rows are aligned by <i>function</i>, not by stage number.</p>
+<table>
+  <thead><tr><th>Sub-problem / function</th><th class="col-rc">render_and_compare</th><th class="col-ea">egoaero</th></tr></thead>
+  <tbody>
+    <tr><td class="feat">Frames + camera + depth</td>
+      <td class="col-rc"><span class="stagebadge">S0 preprocess</span> RGB→frames, K, world→cam extrinsics, <b>estimated</b> metric depth (MoGe-2 / VGGT / DA3 / VIPE)</td>
+      <td class="col-ea"><span class="stagebadge">S0 ego_io</span> RGB-D stream ingested; depth is a <b>given</b> sensor channel; cam_traj + intrinsics provided</td></tr>
+    <tr><td class="feat">2D semantics / segmentation</td>
+      <td class="col-rc"><span class="stagebadge">S1 detect_track</span> WiLoR-YOLO hand boxes + L/R, SAM 2.1 object masks, point tracks</td>
+      <td class="col-ea"><span class="stagebadge">S1 semantic</span> MLLM target-object id + SAM3 masks + <b>least-occluded seed-frame</b> selection</td></tr>
+    <tr><td class="feat">Object 6-DoF pose track</td>
+      <td class="col-rc"><span class="stagebadge">S3 object</span> (pose half) silhouette / <b>render-and-compare</b> (PyTorch3D) / FoundationPose / hand-coupled</td>
+      <td class="col-ea"><span class="stagebadge">S2 track</span> RANSAC coarse init + <b>memory-pool pose-graph</b> optimization (BundleSDF/FoundationPose in real)</td></tr>
+    <tr><td class="feat">Object shape / mesh</td>
+      <td class="col-rc"><span class="stagebadge">S3 object</span> (shape half) <b>SAM-3D-Objects</b> textured mesh, metric-scaled; depth-lift hull fallback</td>
+      <td class="col-ea"><span class="stagebadge">S3 mesh</span> neural-field coarse + <b>SAM3D</b> fine, recovered via Umeyama rigid+scale align</td></tr>
+    <tr><td class="feat">Hand → MANO (+world)</td>
+      <td class="col-rc"><span class="stagebadge">S2 hand</span> HaMeR per-frame + Dyn-HaMR temporal + CHOIR Eq-1 fit; re-anchored to metric depth</td>
+      <td class="col-ea"><span class="stagebadge">S4 hand</span> HaWoR MANO + <b>depth-residual global-translation correction</b> (median dz)</td></tr>
+    <tr><td class="feat">One metric world frame</td>
+      <td class="col-rc"><span class="stagebadge">S4 align</span> Umeyama global similarity to depth <span class="part">(not wired — world_scale=1)</span></td>
+      <td class="col-ea"><span class="stagebadge">S5 ego_comp</span> world→<b>table frame</b> via ORB-SLAM3 + plane fit (mock uses GT table_T)</td></tr>
+    <tr><td class="feat">Temporal smoothing</td>
+      <td class="col-rc"><span class="stagebadge">S5 coarse_fit</span> moving-average (hand verts/joints + object translation)</td>
+      <td class="col-ea"><span class="stagebadge">S5 ego_comp</span> moving-average (same: hand + object translation only)</td></tr>
+    <tr><td class="feat">Relative-placement rectify</td>
+      <td class="col-rc"><span class="stagebadge">S6 rectify</span> flow-matching grasp prior <span class="part">(not built → heuristic snap / no-op)</span> + barycentric correspondences</td>
+      <td class="col-ea"><i>folded into</i> <span class="stagebadge">S6 contact</span> (no separate generative rectifier)</td></tr>
+    <tr><td class="feat">Contact optimization</td>
+      <td class="col-rc"><span class="stagebadge">S7 contact_optim</span> CHOIR differentiable energies (contact / penetration / temporal); 4 dispatch paths</td>
+      <td class="col-ea"><span class="stagebadge">S6 contact</span> App-C <b>bounded three-region push-back</b> (numpy, analytic) — <b>same algorithm in mock &amp; real</b></td></tr>
+    <tr><td class="feat">Eval / error</td>
+      <td class="col-rc"><span class="stagebadge">S8 eval</span> MPJPE, object-transl err, penetration, contact-F1 <b>vs re-derived GT</b>; exports pseudo-GT</td>
+      <td class="col-ea"><span class="stagebadge">S7 eval</span> penetration + gap + jitter before/after (no MPJPE/F1 — needs real GT)</td></tr>
+    <tr><td class="feat">Online quality / accept</td>
+      <td class="col-rc"><span class="no">— none —</span></td>
+      <td class="col-ea"><span class="stagebadge">S8 quality</span> App-E recoverability → <b>accept / repairable_accept / recapture</b></td></tr>
+    <tr><td class="feat">Beyond reconstruction</td>
+      <td class="col-rc">pseudo-GT export for a future feed-forward distillation model</td>
+      <td class="col-ea"><b>SP2</b> two-stage residual RL policy · <b>SP3</b> quality gate · <b>SP4</b> EgoDex-R dataset loop</td></tr>
+  </tbody>
+</table>
+<div class="note"><b>Read this:</b> the biggest structural difference is <b>order &amp; placement</b>. render_and_compare reconstructs <i>hand first (S2), object second (S3)</i> then aligns and rectifies before a single big differentiable contact optimizer (S7). egoaero reconstructs <i>object first (S2 track, S3 mesh), hand later (S4)</i>, compensates ego motion into a table frame (S5), then does a bounded geometric contact repair (S6) and a quality gate (S8). The contact step is <b>S7</b> in one and <b>S6</b> in the other; the eval step is <b>S8</b> vs <b>S7</b>.</div>
+
+<!-- ============================================================ -->
+<h2 id="stages">4. Stage-by-stage detail (by index)</h2>
+<table>
+  <thead><tr><th>#</th><th class="col-rc">render_and_compare</th><th class="col-ea">egoaero</th></tr></thead>
+  <tbody>
+    <tr><td class="feat">0</td>
+      <td class="col-rc"><b>preprocess &amp; camera.</b> Decode video → frames; intrinsics K, extrinsics [T,4,4] (world→cam), metric depth. Mock: K from synthetic scene, no depth. Real: MoGe-2 (default) / VGGT / DA3 + VIPE.</td>
+      <td class="col-ea"><b>ego_io.</b> Emit RGB-D obs + GT passthrough. Mock: <code>generate_ego_hoi</code> synthetic scene → depth, obj/hand masks, intrinsics, cam_traj, table_T, and full GT arrays. Real: <code>NotImplementedError</code> (RGB-D loader).</td></tr>
+    <tr><td class="feat">1</td>
+      <td class="col-rc"><b>detect, sides &amp; segmentation.</b> Hand boxes + L/R slots, object box, modal+amodal masks, point tracks. Mock: project GT verts → boxes (right slot only). Real: WiLoR-YOLO + SAM 2.1 (point-prompted, propagated).</td>
+      <td class="col-ea"><b>semantic.</b> MLLM semantic init + segmentation; pick <b>seed frame</b> = <code>argmax(area − occlusion)</code>. Mock: GT masks passthrough + seed score. Real: <code>NotImplementedError</code> (MLLM + SAM3).</td></tr>
+    <tr><td class="feat">2</td>
+      <td class="col-rc"><b>hand reconstruction.</b> Per-frame MANO (θ,β,orient,transl) + world motion + contact candidates. Mock: GT hand + <b>depth-dominant jitter</b> ([1.5,1.5,6] mm). Real: HaMeR + Dyn-HaMR + CHOIR Eq-1 rigid fit, re-anchored to MoGe depth.</td>
+      <td class="col-ea"><b>track (object 6-DoF).</b> RANSAC rigid init + <b>memory-pool pose-graph</b> (translation-only gradient descent; feat + pose-prior terms; Jacobi-stable step). Mock: smooths injected drift toward GT. Real: <code>NotImplementedError</code> (BundleSDF/FoundationPose).</td></tr>
+    <tr><td class="feat">3</td>
+      <td class="col-rc"><b>object shape + 6D pose.</b> Canonical mesh + scale + [T,4,4] poses. Mock: GT sphere + injected scale/depth/drift/rot error. Real shape: SAM-3D-Objects (→hull fallback). Real pose: silhouette / <b>render-compare</b> / FoundationPose / hand / choir_tracker.</td>
+      <td class="col-ea"><b>mesh (coarse-to-fine).</b> Neural-field coarse + SAM3D fine, aligned by <b>Umeyama (rigid+scale)</b> — the one op the paper specifies. Mock: fabricate "SAM3D" mesh under unknown sim(3), recover the transform. Real: <code>NotImplementedError</code>.</td></tr>
+    <tr><td class="feat">4</td>
+      <td class="col-rc"><b>spatial alignment.</b> Hands + object into ONE metric world frame; record pre-rectification contact gap. <span class="part">Real Umeyama scale solve is a TODO</span> — <code>world_scale=1</code> always.</td>
+      <td class="col-ea"><b>hand reconstruction.</b> HaWoR MANO + <b>RGB-D depth-residual translation correction</b>: project verts, median depth residual dz, translate along camera +z. Mock: inject 3 cm depth bias, then remove it. Real: <code>NotImplementedError</code> (HaWoR).</td></tr>
+    <tr><td class="feat">5</td>
+      <td class="col-rc"><b>contact-agnostic coarse fit.</b> Moving-average smoothing of hand + object translation (removes stage-2 jitter). First "watchable" result. <b>Same numpy path in mock &amp; real.</b></td>
+      <td class="col-ea"><b>ego-motion compensation.</b> Transform all states world→<b>table frame</b> (<code>se3_inv(table_T)</code>) + light moving-average smoothing. Mock: GT table_T. Real: <code>NotImplementedError</code> (ORB-SLAM3 + plane fit).</td></tr>
+    <tr><td class="feat">6</td>
+      <td class="col-rc"><b>generative rectification.</b> Rectified relative placement + barycentric correspondences (KNN, 2 cm + 60° normal gate). <span class="part">Flow-matching grasp prior not built</span> → heuristic snap-to-contact (mock) / no-op (real).</td>
+      <td class="col-ea"><b>contact optimization (App C, faithful core).</b> Bounded <b>three-region push-back</b> (thumb pad / opposing finger / thenar), triangular-smoothed whole-hand translation + local finger correction + penetration push-back. <b>Same algorithm both modes.</b></td></tr>
+    <tr><td class="feat">7</td>
+      <td class="col-rc"><b>contact-aware joint optimization (final).</b> CHOIR energies. 4 paths: mock numpy object-only Adam; real choir_fine registry; real differentiable MANO+object render-compare; real rigid joint_grasp. Outputs final hand+object+contact.</td>
+      <td class="col-ea"><b>eval report.</b> Penetration sum, contact gap, hand jitter — <b>before (stage5) vs after (stage6)</b>. Pure reporting, no GT-vs needed.</td></tr>
+    <tr><td class="feat">8</td>
+      <td class="col-rc"><b>evaluation &amp; error attribution.</b> Re-derive synthetic GT; MPJPE, jitter, object-transl err, penetration, <b>contact-F1</b>, gap — raw vs refined. Export <code>pseudo_gt.npz</code> + distillation signals.</td>
+      <td class="col-ea"><b>online quality assessment (App E).</b> Per-finger recoverability, repair budget, residual, unresolved ratio → <code>Q=exp(−(αR+βB+γU))</code> → <b>accept / repairable_accept / recapture</b> + failure attribution.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="gating">5. Real-vs-mock philosophy — the deepest difference</h2>
+<div class="tldr">
+  <div class="card rc">
+    <h3>render_and_compare — <span style="color:var(--rc)">error sandbox, backends wired</span></h3>
+    <p>Mock generates a synthetic GT scene, then <b>injects realistic perception error</b> in the perception stages (stage 2 depth-dominant hand jitter, stage 3 object scale/depth/6-DoF drift). The <b>geometric refinement stages run for real</b> on that noisy data and drive the error back down; stage 8 re-derives GT and prints the before→after drop.</p>
+    <p>Every real backend is <b>actually wired</b> via <code>backends/real_perception.py</code> with lazy imports and a graceful <code>BackendNotAvailable</code> — install weights and <code>--real</code> runs the real model. Heavy models live in a second <code>sam3d-objects</code> conda env, called by subprocess with per-run caching.</p>
+    <p class="mono-s">gate pattern: <code>if cfg.mock: …inject… else: from ..backends.real_perception import …</code></p>
+  </div>
+  <div class="card ea">
+    <h3>egoaero — <span style="color:var(--ea)">GT-driven, backends stubbed</span></h3>
+    <p>Mock generates a synthetic GT scene; the perception stages mostly <b>pass GT through</b> (with smaller injected perturbations: stage-2 translation drift, stage-4 depth bias). Only <b>two stages run a real algorithm</b>: the App-C contact optimization (stage 6) and the App-E quality scoring (stage 8) — both pure numpy, no learned model.</p>
+    <p>Every real backend is a <b>hard stub</b>: stages 0–5 begin with <code>if not cfg.mock: raise NotImplementedError(...)</code>, and <code>backends/real.py:get()</code> unconditionally raises naming the would-be models. There is <b>no <code>--real</code> path that runs</b> today.</p>
+    <p class="mono-s">gate pattern: <code>if not cfg.mock: raise NotImplementedError("real … — backends/real.py")</code></p>
+  </div>
+</div>
+<table>
+  <thead><tr><th>Stage runs real algorithm in mock?</th><th class="col-rc">render_and_compare</th><th class="col-ea">egoaero</th></tr></thead>
+  <tbody>
+    <tr><td class="feat">Perception (hand/object/seg)</td><td class="col-rc"><span class="no">No</span> — injects error onto GT</td><td class="col-ea"><span class="no">No</span> — GT passthrough + noise</td></tr>
+    <tr><td class="feat">Alignment / ego-comp</td><td class="col-rc"><span class="part">Partial</span> (compose; Umeyama not wired)</td><td class="col-ea"><span class="part">Partial</span> (GT table_T + smoothing)</td></tr>
+    <tr><td class="feat">Temporal smoothing</td><td class="col-rc"><span class="yes">Yes</span> (real numpy, both modes)</td><td class="col-ea"><span class="yes">Yes</span> (real numpy, both modes)</td></tr>
+    <tr><td class="feat">Relative rectify</td><td class="col-rc"><span class="part">Heuristic snap</span> (generative prior unbuilt)</td><td class="col-ea"><span class="map-arrow">folded into contact</span></td></tr>
+    <tr><td class="feat">Contact optimization</td><td class="col-rc"><span class="yes">Yes</span> (numpy Adam, mock path is genuine)</td><td class="col-ea"><span class="yes">Yes</span> (App-C, identical mock &amp; real)</td></tr>
+    <tr><td class="feat">Eval / quality</td><td class="col-rc"><span class="yes">Yes</span> (GT error attribution)</td><td class="col-ea"><span class="yes">Yes</span> (recoverability scoring)</td></tr>
+    <tr><td class="feat"><code>--real</code> actually runs?</td><td class="col-rc"><span class="yes">Yes</span>, if weights installed</td><td class="col-ea"><span class="no">No</span> — raises everywhere</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="object">6. Object reconstruction — both asset-free, different machinery</h2>
+<p>Neither uses a known CAD template as the primary path — both are <b>model-free / asset-free</b>. But the machinery differs.</p>
+<table>
+  <thead><tr><th>Aspect</th><th class="col-rc">render_and_compare</th><th class="col-ea">egoaero</th></tr></thead>
+  <tbody>
+    <tr><td class="feat">Shape source</td><td class="col-rc"><b>SAM-3D-Objects</b> textured mesh from the largest-mask anchor frame, scaled to metric extent from depth; depth-lift convex hull fallback.</td><td class="col-ea"><b>Neural-field coarse + SAM3D fine</b>, then <b>Umeyama rigid+scale</b> to fuse. Carries colorless triangle mesh.</td></tr>
+    <tr><td class="feat">6-DoF pose</td><td class="col-rc">Translation = depth-lift centroid; rotation = silhouette tracker → <b>differentiable render-and-compare</b> (silhouette IoU + photometric) — recovers spin-about-axis.</td><td class="col-ea"><b>Memory-pool pose-graph</b>: sliding-window edges to last K frames, translation-only gradient descent, feat (correspondence) + pose-prior terms; RANSAC coarse init.</td></tr>
+    <tr><td class="feat">"Render and compare"</td><td class="col-rc"><b>Literal</b> — PyTorch3D differentiable rendering vs SAM2 masks is the object-pose-winning path (the repo is named for it).</td><td class="col-ea"><b>Not used</b> — pose comes from geometric correspondence + pose-graph, not rendering.</td></tr>
+    <tr><td class="feat">Texture/color</td><td class="col-rc">Yes (SAM-3D textured → <code>obj_colors</code>), shown in the viewer.</td><td class="col-ea">No — untextured mesh.</td></tr>
+    <tr><td class="feat">Mock object</td><td class="col-rc">UV sphere R=0.040 m (234 v / 432 f), gentle motion + spin.</td><td class="col-ea">UV sphere R=0.040 m (234 v / 432 f), rest→lift→move→place.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="hand">7. Hand &amp; contact</h2>
+<table>
+  <thead><tr><th>Aspect</th><th class="col-rc">render_and_compare</th><th class="col-ea">egoaero</th></tr></thead>
+  <tbody>
+    <tr><td class="feat">Hand estimator (real)</td><td class="col-rc">HaMeR (per-frame) + Dyn-HaMR (temporal/world) + CHOIR Eq-1 rigid fit.</td><td class="col-ea">HaWoR (egocentric MANO).</td></tr>
+    <tr><td class="feat">Metric anchoring</td><td class="col-rc">Discard HaMeR depth; re-anchor hand centroid to <b>MoGe metric depth</b> at box center.</td><td class="col-ea"><b>Depth-residual</b> correction: median dz between projected verts and observed RGB-D depth, translate along camera +z.</td></tr>
+    <tr><td class="feat">Contact representation</td><td class="col-rc"><b>Barycentric correspondences</b> (face_id, bary, softmax weight) that move rigidly with object pose; predicted map = proximity (&lt;2 cm).</td><td class="col-ea"><b>Binary per-vertex mask</b> (T,778): hand verts within 2 mm of surface.</td></tr>
+    <tr><td class="feat">Contact optimizer</td><td class="col-rc">Differentiable energies (contact pull + one-sided penetration + temporal + anchor); fingers can <b>articulate</b> (MANO θ) in the full real path; mock moves object only. Soft contact cache rebuilt every 10–15 iters → envelopment.</td><td class="col-ea"><b>Bounded geometric push-back</b>: whole-hand translation over 3 regions, then local finger offsets along the MANO chain, then penetration recovery. <b>Object pose &amp; MANO articulation are frozen</b> — only a bounded hand correction. Hard clips: 34 mm global, 15 mm finger, 8 mm pushback.</td></tr>
+    <tr><td class="feat">What moves to make contact</td><td class="col-rc">Mock: the <b>object</b> slides to the hand. Real: the <b>hand</b> (articulated) closes onto the image-grounded object.</td><td class="col-ea">The <b>hand</b> is nudged (bounded) onto the fixed object; the object never moves in contact opt.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="frames">8. Coordinate frames &amp; units</h2>
+<table>
+  <thead><tr><th>Aspect</th><th class="col-rc">render_and_compare</th><th class="col-ea">egoaero</th></tr></thead>
+  <tbody>
+    <tr><td class="feat">World frame</td><td class="col-rc">Camera/world (OpenCV y-down, +z forward). Mock: world == camera (identity extrinsics).</td><td class="col-ea">Fixed <b>table frame</b> (<code>table_T = se3(I,[0,0.12,0.60])</code>); the head camera moves (ego motion). Outputs are world→table compensated.</td></tr>
+    <tr><td class="feat">Camera</td><td class="col-rc"><b>Static</b> assumption in the validated path (MoGe identity extrinsics); VGGT/VIPE give moving extrinsics.</td><td class="col-ea"><b>Moving</b> head camera is the whole point — ego-motion compensation (S5) is a dedicated stage.</td></tr>
+    <tr><td class="feat">Units</td><td class="col-rc">metres; errors in mm / cm. OpenCV convention.</td><td class="col-ea">metres; metrics in mm / degrees. SE3 4×4.</td></tr>
+    <tr><td class="feat">Up direction (viewer)</td><td class="col-rc"><code>-y</code>, grid on xz at z≈0.6.</td><td class="col-ea"><code>-y</code>, grid on xz at object depth.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="contract">9. Contract / final outputs</h2>
+<table>
+  <thead><tr><th>Output</th><th class="col-rc">render_and_compare &nbsp;<span class="mono-s">pseudo_gt.npz</span></th><th class="col-ea">egoaero &nbsp;<span class="mono-s">contract/</span></th></tr></thead>
+  <tbody>
+    <tr><td class="feat">Hand</td><td class="col-rc"><code>hand_verts</code> [T,778,3], <code>hand_joints</code> [T,21,3], optional <code>hand_faces</code></td><td class="col-ea"><code>hand_mano.npz</code> → verts [T,778,3] + joints [T,21,3]</td></tr>
+    <tr><td class="feat">Object mesh</td><td class="col-rc"><code>obj_verts</code> [No,3], <code>obj_faces</code> [Mo,3], optional <code>obj_colors</code></td><td class="col-ea"><code>object_mesh.obj</code> (OBJ, 1-indexed faces)</td></tr>
+    <tr><td class="feat">Object trajectory</td><td class="col-rc"><code>obj_poses</code> [T,4,4]</td><td class="col-ea"><code>object_traj.npz</code> → obj_poses_t [T,4,4]</td></tr>
+    <tr><td class="feat">Contact</td><td class="col-rc"><code>contact_map</code> [T,Nc] (candidate subset)</td><td class="col-ea"><code>contact.npz</code> → contact_mask [T,778] (all verts)</td></tr>
+    <tr><td class="feat">Extras</td><td class="col-rc"><code>rectify_delta</code> [T,3], <code>object_delta</code> [T,3]; <code>report.json</code> error table</td><td class="col-ea"><code>manifest.json</code>; separate <code>quality.json</code> (decision)</td></tr>
+    <tr><td class="feat">Frame</td><td class="col-rc">camera/world metric</td><td class="col-ea">table frame</td></tr>
+    <tr><td class="feat">Intent</td><td class="col-rc"><b>pseudo-GT</b> for distillation</td><td class="col-ea"><b>comparable per-clip output</b> for the methods workbench + downstream RL/dataset</td></tr>
+  </tbody>
+</table>
+<div class="same">Both contracts carry the same four essentials — <b>hand (verts+joints), object mesh, object 6-DoF trajectory, contact</b> — so a downstream consumer or a shared metric can read either. egoaero's was deliberately aligned to the workbench method-contract.</div>
+
+<!-- ============================================================ -->
+<h2 id="backends">10. Real backends referenced</h2>
+<table>
+  <thead><tr><th>Function</th><th class="col-rc">render_and_compare (wired, lazy)</th><th class="col-ea">egoaero (stubbed names)</th></tr></thead>
+  <tbody>
+    <tr><td class="feat">Depth / camera</td><td class="col-rc">MoGe-2, VGGT, Depth-Anything-3, VIPE, DROID-SLAM</td><td class="col-ea">RGB-D loader (sensor) · ORB-SLAM3 (camera)</td></tr>
+    <tr><td class="feat">Detection / seg</td><td class="col-rc">WiLoR-YOLO, SAM 2.1, amodal video seg, CoTracker3</td><td class="col-ea">MLLM (semantic) · SAM3 (seg)</td></tr>
+    <tr><td class="feat">Hand</td><td class="col-rc">HaMeR, Dyn-HaMR (+ depthlift fallback)</td><td class="col-ea">HaWoR</td></tr>
+    <tr><td class="feat">Object</td><td class="col-rc">SAM-3D-Objects, BundleSDF, FoundationPose/MegaPose (CAD control), PyTorch3D render-compare</td><td class="col-ea">BundleSDF / FoundationPose (track) · neural field + SAM3D (mesh)</td></tr>
+    <tr><td class="feat">Grasp prior</td><td class="col-rc">flow-matching on GraspPair/DexGraspNet (~500k) <span class="part">— planned</span></td><td class="col-ea">— (none; bounded geometric repair instead)</td></tr>
+    <tr><td class="feat">Wiring</td><td class="col-rc"><b>Imported &amp; callable</b>; 2 conda envs; subprocess + cache; graceful fallback</td><td class="col-ea"><b>Names only</b>; <code>backends/real.py:get()</code> raises</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="faithful">11. Faithful vs stubbed — honest status</h2>
+<table>
+  <thead><tr><th></th><th class="col-rc">render_and_compare</th><th class="col-ea">egoaero</th></tr></thead>
+  <tbody>
+    <tr><td class="feat">Genuinely implemented algorithm (runs in mock)</td><td class="col-rc">temporal smoothing (S5), proximity correspondences (S6), <b>contact optimization (S7)</b>, full GT error attribution (S8); the differentiable CHOIR-fine term library (<code>choir_fine/</code>, 55 tests).</td><td class="col-ea"><b>contact optimization (S6, App C verbatim constants)</b>, <b>quality scoring (S8, App E)</b>, pose-graph smoothing (S2), Umeyama mesh align (S3), depth-residual correction (S4).</td></tr>
+    <tr><td class="feat">Explicitly NOT implemented</td><td class="col-rc">S4 metric-scale Umeyama (world_scale=1); S6 generative <b>flow-matching grasp prior</b> (heuristic snap stands in); faithful-CHOIR fine path is documented as worse-on-hand than the joint_opt baseline.</td><td class="col-ea"><b>All real perception</b> (S0–S5 raise); MPJPE / contact-F1 (need real GT annotations); RL policy doesn't beat zero-baseline at the demo budget (documented).</td></tr>
+    <tr><td class="feat">Mock fidelity</td><td class="col-rc">High — error magnitudes tuned to be realistic so refinement gains are meaningful.</td><td class="col-ea">GT-driven — geometry is synthetic; penetration is large so the quality gate skews to repairable/recapture (documented).</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="downstream">12. Downstream scope — where they diverge entirely</h2>
+<div class="tldr">
+  <div class="card rc"><h3>render_and_compare ends at reconstruction</h3>
+    <p>Stage 8 exports <code>pseudo_gt.npz</code> + distillation signals + (real mode) reprojection-overlay validation videos. The stated goal is to be a <b>teacher</b> whose cleaned 4D-HOI becomes training data for a future single feed-forward model. It also ships HTML reports (<code>pipeline_report.html</code>, <code>method_comparison.html</code>) and a viser viewer for error inspection.</p></div>
+  <div class="card ea"><h3>egoaero reconstruction feeds a closed loop</h3>
+    <p>Reconstruction (SP1) is one of four sub-projects:
+    <b>SP2</b> retargets the hand-object trajectory to a simulated Shadow Hand and trains a <b>two-stage residual RL policy</b> (MuJoCo + PPO);
+    <b>SP3</b> is the online quality gate (stage 8);
+    <b>SP4</b> runs a <b>collection loop</b> (reconstruct → assess → accept/repairable/recapture) that writes an EgoDex-R-style dataset. Reconstruction is the front end of an asset-free demo→sim→robot system.</p></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="shared">13. Shared DNA</h2>
+<div class="same">
+Despite the differences, the two are clearly siblings:
+<ul style="margin:6px 0">
+  <li><b>9-stage, file-based pipelines</b> — each stage writes a numpy <code>Bundle</code> (<code>arrays.npz</code> + <code>meta.json</code>); resumable; selectable stage ranges; cached unless forced.</li>
+  <li><b>Mock-runnable on a CPU box</b> with no weights — both ship a deterministic synthetic <b>UV-sphere + procedural-hand</b> reach→grasp scene (same R=0.040 m sphere, same 778-vert hand, raised-cosine grasp <code>bump</code>).</li>
+  <li><b>MANO hand · asset-free object · contact-aware refinement · before/after eval.</b></li>
+  <li><b>Swappable real backends behind a registry</b> (one wires them, one stubs them).</li>
+  <li><b>An interactive viser 4D viewer</b> + a comparable per-clip contract (hand verts/joints, object mesh, 6-DoF poses, contact).</li>
+</ul>
+In short: <b>render_and_compare</b> is a third-person, RGB-in, render-and-compare CHOIR <i>error-characterization rig</i> that ends at pseudo-GT; <b>egoaero</b> is an egocentric, RGB-D-in, asset-free EgoAERO <i>reproduction</i> whose reconstruction front-ends an RL + data-collection loop. They agree on the destination (clean 4D HOI) and diverge on the road.
+</div>
+
+<div class="foot">
+  Generated from a stage-by-stage read of both repos under <code>hoi_recon/</code>
+  (<code>render_and_compare/hoi_recon/stages/</code> and <code>egoaero/egoaero/stages/</code>),
+  their configs, contracts, and design docs. Status notes (not-wired / stubbed / documented-worse) are taken
+  verbatim from the code and each repo's own README / ASSUMPTIONS / IMPLEMENTATION_SUMMARY.
+</div>
+
+</div>
+</body>
+</html>

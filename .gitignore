@@ -21,3 +21,14 @@ wget-log
 *.log
 .superpowers/
 .claude/worktrees/
+
+# --- HOI methods workbench: heavy third-party method clones (reproducible via compare/method_notes/*_RUN.md) ---
+/hort/
+/hold/
+/easyhoi/
+/forehoi/
+# keep the workbench reconstruction scenes + previews (override the global *.npz / *.mp4 ignores)
+!compare/scenes/
+!compare/scenes/*.npz
+!egoaero/viz_output/
+!egoaero/viz_output/*.npz

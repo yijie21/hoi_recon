@@ -279,11 +279,16 @@ def _load_sam2(cfg):
     return predictor
 
 
-def _object_prompt(boxes, valid, image_size):
-    """Heuristic SAM2 prompt for the interacting object: centre of the detected
-    hand box (the held object sits in the grasp), else image centre. Replace with
-    a real interacting-object detector or a user click for production."""
+def _object_prompt(boxes, valid, image_size, override=None):
+    """SAM2 point prompt for the interacting object.
+
+    If ``override`` (an (x, y) pixel on the object, e.g. a user click / detector) is
+    given, use it directly — this is the robust path for a hand *holding* an object,
+    where the hand-box centre lands on the hand and mis-segments it. Otherwise fall
+    back to the hand-box-centre heuristic (assumes the object sits in the grasp)."""
     H, W = image_size
+    if override is not None:
+        return float(override[0]), float(override[1])
     v = valid[0] if valid.shape[0] else np.zeros(2, bool)
     if v.any():
         b = boxes[0][v][0]
@@ -1110,7 +1115,13 @@ def run_hand(cfg, frame_paths, hand_boxes, hand_valid, depth_paths=None, K=None)
             continue
         box = hand_boxes[i, slot][None, :]
         right = np.array([dom])
-        ds = ViTDetDataset(model_cfg, img, box, right, rescale_factor=2.0)
+        # Some HaMeR forks (e.g. easyhoi's) require an extra `valid` arg; pass it
+        # only when the constructor asks for it so both signatures work.
+        import inspect as _inspect
+        _vk = {}
+        if "valid" in _inspect.signature(ViTDetDataset.__init__).parameters:
+            _vk["valid"] = np.array([True])
+        ds = ViTDetDataset(model_cfg, img, box, right, rescale_factor=2.0, **_vk)
         batch = torch.utils.data.default_collate([ds[0]])
         batch = {k: (v.to(dev) if torch.is_tensor(v) else v) for k, v in batch.items()}
         with torch.no_grad():

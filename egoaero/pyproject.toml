@@ -17,11 +17,13 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest"]
 rl = ["mujoco>=3", "stable-baselines3>=2", "gymnasium>=1", "torch"]
+viz = ["viser>=0.2"]
 
 [project.scripts]
 egoaero-train = "egoaero.policy.cli:main"
 egoaero-eval = "egoaero.policy.cli:main"
 egoaero-collect = "egoaero.dataset.cli:main"
+egoaero-view = "egoaero.viz.viser_app:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

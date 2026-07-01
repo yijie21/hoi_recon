@@ -102,6 +102,24 @@ Validated by `egoaero.contract.validate(run_dir)` → `True` when all five files
 
 ---
 
+## Interactive 4D-HOI viewer (viser)
+
+Play a run's reconstructed hand-object interaction in the browser — object + hand over a
+timeline, per-frame contact highlighting, contact lines, live contact/gap readouts:
+
+```bash
+scripts/view_demo.sh                       # mock run (auto-generated)
+scripts/view_demo.sh runs/egodexr/seq_0000 # a collected dataset sequence
+# or: python -m egoaero.viz.viser_app --run <run_dir> [--stage stage6_contact]   (egoaero-view)
+```
+
+Needs `viser` (`pip install -e .[viz]`; present in the `forehoi` env). Serves on port 8080 —
+SSH-forward it to view locally. It also loads a self-contained scene `.npz` (canonical-mesh or
+per-frame-point-cloud object), used to view the real `wild6.mp4` reconstruction (WiLoR MANO mesh
+hand + bottle proxy). See `viz_output/README.md` for the visual gallery and the wild6 demo.
+
+---
+
 ## Shared evaluation metrics
 
 The workbench contract requires reporting:

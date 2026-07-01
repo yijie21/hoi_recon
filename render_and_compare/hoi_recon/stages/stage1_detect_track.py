@@ -69,8 +69,9 @@ def run(ctx) -> Bundle:
 
     hand_boxes, hand_valid = detect_hands(cfg, frame_paths)
     log(f"detected hands: L={int(hand_valid[:,0].sum())} R={int(hand_valid[:,1].sum())} frames")
-    prompt = _object_prompt(hand_boxes, hand_valid, (H, W))
-    log(f"SAM2 object prompt @ ({prompt[0]:.0f},{prompt[1]:.0f})")
+    prompt = _object_prompt(hand_boxes, hand_valid, (H, W), cfg.get("object_prompt"))
+    log(f"SAM2 object prompt @ ({prompt[0]:.0f},{prompt[1]:.0f})"
+        + ("  [override]" if cfg.get("object_prompt") else "  [hand-box heuristic]"))
     masks_dir, mask_paths = segment_object(cfg, frames_dir, frame_paths, prompt,
                                            ctx.stage_dir(NAME))
 
