@@ -137,6 +137,31 @@ cd forehoi && CUDA_VISIBLE_DEVICES=<free gpu> python export_4d_hoi.py --video ..
 $PY compare/adapters/forehoi_to_scene.py forehoi/output_4d/wild6 compare/scenes/forehoi_wild6.npz
 ```
 
+## Backprojection / reprojection check (overlay on the real frames)
+
+`compare/backproject.py` overlays each method's 3D reconstruction back onto the frames it
+consumed, using **that method's own camera** (no cross-method re-warp), so what you see is its
+true pixel reprojection error. Hand mesh = green, object = blue.
+
+```bash
+PY=/workspace/miniconda3/envs/forehoi/bin/python
+$PY compare/backproject.py rc      compare/backproj/rc       # full-frame 720x1280 originals, 74f
+$PY compare/backproject.py forehoi compare/backproj/forehoi  # its 518x518 processed frames, 12f
+$PY compare/backproject.py hort    compare/backproj/hort     # HORT's native 224 crop (un-flipped), 33f
+```
+Each writes `overlay.mp4` + a 6-frame `contact_sheet.png`.
+
+| Method | Target | Hand alignment | Object alignment |
+|---|---|---|---|
+| render_and_compare | full frame 720x1280 (original) | on the hand; slightly small/offset a few frames | mesh tracks the bottle through the grasp — solid |
+| ForeHOI | its 518² processed frames | **very tight** | on the bottle in grasp frames (letterboxed square view) |
+| HORT | its 224 crop only | **excellent** (WiLoR) | **sparse noisy point cloud**, floats around grasp |
+
+Notes: HORT runs on a crop and never saves the crop box, so its reprojection can only be shown on
+that crop (un-flipped to the true left hand); a full-frame HORT overlay would need re-deriving the
+detection box. ForeHOI frames are letterboxed because it squares the portrait video. The mesh is
+rasterized painter's-algorithm with cv2 (depth-sorted alpha triangles) — no GL, runs headless.
+
 ## Caveats for a *fair* comparison
 
 The scenes above are each method's **native demo on a different clip** (HORT→wild6 bottle,
