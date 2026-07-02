@@ -14,6 +14,23 @@ Usage: python compare/adapters/do_as_i_do_to_scene.py <recon/wild6> compare/scen
 """
 import sys, os, json, numpy as np
 from scipy.spatial.transform import Rotation as R
+from scipy.ndimage import median_filter, uniform_filter1d
+
+
+def smooth_translations(T, med=9, avg=7):
+    """Temporally smooth a per-frame [N,3] translation track: median (kills spikes) then
+    moving-average (removes high-freq wobble), keeping low-freq real motion. Returns the
+    smoothed track AND the per-frame delta (smoothed - raw) so the SAME correction can be
+    applied to the hand -> the hand-object grasp is preserved exactly (rigid per-frame shift).
+
+    Fixes the apparent-size flicker: the object depth is anchored to the HaWoR hand, whose
+    per-frame depth wobbles ~8x more than it truly moves; that wobble (not the depth model)
+    is what makes the backprojected object flicker larger/smaller."""
+    Ts = np.empty_like(T)
+    for c in range(3):
+        Ts[:, c] = uniform_filter1d(median_filter(T[:, c], size=med, mode="nearest"),
+                                    size=avg, mode="nearest")
+    return Ts, (Ts - T)
 
 
 def read_obj(path):
@@ -25,7 +42,7 @@ def read_obj(path):
     return np.asarray(V, np.float32), np.asarray(F, np.int32)
 
 
-def main(recon_dir, out, anchor="left"):
+def main(recon_dir, out, anchor="left", smooth=True):
     obj = "white_bottle"
     cv = f"{recon_dir}/obj_tracking_out/{obj}/combined_visualization"
     layout = json.load(open(f"{cv}/layout_camera_frame_optimized.json"))
@@ -48,13 +65,27 @@ def main(recon_dir, out, anchor="left"):
 
     poses = np.asarray(poses, np.float32)
     hverts = np.asarray(hverts, np.float32)
+
+    if smooth:
+        # de-wobble the shared depth: smooth the object translation, then shift the hand by
+        # the SAME per-frame delta so the grasp is preserved exactly (both de-wobble together).
+        tr = poses[:, :3, 3].astype(np.float64)
+        tr_s, delta = smooth_translations(tr)
+        poses[:, :3, 3] = tr_s.astype(np.float32)
+        hverts = (hverts + delta[:, None, :]).astype(np.float32)
+
     os.makedirs(os.path.dirname(out), exist_ok=True)
     np.savez(out,
              hand_verts=hverts, hand_faces=hf,
              obj_verts=mverts, obj_faces=mfaces, obj_poses=poses,
-             source=f"do-as-i-do (wild6, {len(poses)}f, SAM3+SAM-3D+MoGe+HaWoR+guided-diffusion)")
-    print(f"wrote {out}: hand {hverts.shape}, obj mesh {mverts.shape} x poses {poses.shape}, mesh_scale={mesh_scale:.4f}")
+             source=f"do-as-i-do (wild6, {len(poses)}f, SAM3+SAM-3D+DA3-metric+HaWoR+guided-diffusion"
+                    f"{', depth-smoothed' if smooth else ''})")
+    print(f"wrote {out}: hand {hverts.shape}, obj mesh {mverts.shape} x poses {poses.shape}, "
+          f"mesh_scale={mesh_scale:.4f}, smooth={smooth}")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    # usage: do_as_i_do_to_scene.py <recon/wild6> <out.npz> [--raw]
+    smooth = "--raw" not in sys.argv
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    main(args[0], args[1], smooth=smooth)

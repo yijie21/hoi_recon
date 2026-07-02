@@ -74,12 +74,25 @@ Five methods reconstruct the **same** clip (`egoaero/assets/wild6.mp4`, a left h
 
 ```bash
 PY=/workspace/miniconda3/envs/forehoi/bin/python
-$PY compare/viser_workbench.py compare/scenes/render_and_compare_wild6.npz \
-    compare/scenes/hort_wild6.npz compare/scenes/easyhoi.npz compare/scenes/forehoi_wild6.npz
-$PY compare/snapshot.py compare/compare_wild6_4way.png compare/scenes/render_and_compare_wild6.npz \
-    compare/scenes/hort_wild6.npz compare/scenes/easyhoi.npz compare/scenes/forehoi_wild6.npz
+# 5 methods side by side on one shared timeline (interactive viser):
+$PY compare/viser_workbench.py \
+    compare/scenes/render_and_compare_wild6.npz \
+    compare/scenes/do_as_i_do_wild6.npz \
+    compare/scenes/forehoi_wild6.npz \
+    compare/scenes/hort_wild6.npz \
+    compare/scenes/easyhoi.npz --port 8080
+# static 5-panel snapshot (no server):
+$PY compare/snapshot.py compare/compare_wild6_5way.png \
+    compare/scenes/render_and_compare_wild6.npz \
+    compare/scenes/do_as_i_do_wild6.npz \
+    compare/scenes/forehoi_wild6.npz \
+    compare/scenes/hort_wild6.npz \
+    compare/scenes/easyhoi.npz
 ```
-→ `compare/compare_wild6_4way.png`.
+→ `compare/compare_wild6_5way.png`. Reach the server from your laptop:
+`ssh -p $VAST_TCP_PORT_22 -L 8080:127.0.0.1:8080 root@$PUBLIC_IPADDR` → http://localhost:8080.
+Each method is normalized to the same box size and laid out in a row, so shapes line up regardless of
+each method's own metric scale (see the depth-ambiguity note below for what that normalization hides).
 
 **Takeaways (real bottle ≈ 0.15 m), after the stage-1 fix below:**
 - **render_and_compare (robust, fixed)** — bottle-sized object (0.188 m) held firmly in the grasp; hand good, contact tight. Now competitive/best.
@@ -183,6 +196,46 @@ fitting *size* to either would mis-scale. Instead: scale from the **canonical ha
 (0.19 m -> s=1.32) and translate to match the projected hand centroid to the **box centre** (reliable).
 Result: span 0.144->0.190 m, centroid-vs-box error **164->35 px**. Writes `arrays_handfit.npz`
 (backproject.py + rc_to_scene.py prefer it). Before/after: `compare/backproj/rc_handfit_before_after.png`.
+
+### do-as-i-do object "changes size" in the video overlay (it doesn't — it's depth)
+In `compare/backproj/daid/overlay.mp4` the bottle sometimes projects **larger than the real bottle**
+and the apparent size wobbles frame-to-frame. This is **not** the object's 3D size changing — that is
+fixed. Checked directly in `layout_camera_frame_optimized.json`:
+
+- the object's 3D scale is **constant**: `local_to_scene.scale` = 0.6054 for all 293 frames (std 0.0000),
+  and the mesh is a single canonical mesh × one `mesh_scale` (0.0977). The tracker was run with
+  `--fix_scale_to_init_frame`, so the object is a **rigid body** — it can never resize.
+- what wanders is the object's **depth** (distance along the camera ray). The per-frame
+  `translation_scale_optimized` swings **0.52 → 1.01 (≈2×)** and the camera-frame z goes
+  **0.154 → 0.268 m** (std 0.024), while in-plane x,y barely move (std 0.006 m — **~4× tighter**).
+
+Because a pinhole projects an object at apparent size ∝ `1/z`, that 1.75× depth swing is *exactly* the
+1.75× apparent-size swing you see in the overlay. **In the viser 3D view the object does not resize** —
+it just slides toward/away from the camera; the "scale change" is a projection artifact, visible only
+in the 2D backprojection.
+
+**Root cause (traced, not guessed) — it's the HaWoR hand-depth anchor, not the depth model.**
+`optimize_translation_scale.py` places the object as `obj_target = h_real + k·(o_pm − h_pm)`, where
+`h_real` is the **HaWoR hand** centroid (treated as ground truth) and the pointmap only supplies the
+small hand→object *offset*. So the object depth **follows the hand depth** (measured corr **0.775**),
+and the pointmap contributes almost nothing to the absolute z. The hand's own per-frame depth from
+HaWoR **wobbles ~8× more than it truly moves** (z path-length 0.53 m vs net displacement 0.067 m →
+wiggle ratio 7.9); that high-frequency wobble is what makes the object flicker larger/smaller.
+
+Two consequences worth knowing:
+- **A better depth model does NOT fix this.** We integrated **DA3-metric** (`DA3METRIC-LARGE`) as a
+  drop-in for MoGe (`depth_models/da3.py`, verified metric: ref-frame z 0.52 m vs MoGe's affine
+  1.81 m) and re-ran the depth anchoring: apparent-size swing **1.75× → 1.76×** — unchanged, because
+  the anchor is the hand, which no pointmap swap touches. (DA3 also can't be scale-consistent with the
+  reused MoGe track without the full ~8 h `track_object` re-run.) The DA3 wrapper stays available, but
+  `pipeline.yaml` is left on MoGe by default.
+- **Temporal smoothing IS the fix.** The object is rigid and the hand moves smoothly, so a per-frame
+  median(9)+moving-avg(7) on the object translation — applied to hand **and** object by the same delta,
+  so the grasp is preserved exactly — removes the wobble while keeping real motion:
+  frame-to-frame apparent-size **flicker 0.018 → 0.005 (3.6× lower)**, swing 1.75× → 1.59×.
+  `compare/adapters/do_as_i_do_to_scene.py` does this by default (`--raw` disables it);
+  `do_as_i_do_wild6.npz` is smoothed, `do_as_i_do_wild6_raw.npz` is not.
+  Before/after: `compare/backproj/daid_depth_smoothing.png`; smoothed overlay: `compare/backproj/daid_smoothed/`.
 
 ## do-as-i-do — setup + run notes (reproducible)
 
