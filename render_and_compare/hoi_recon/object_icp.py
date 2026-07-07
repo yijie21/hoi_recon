@@ -108,6 +108,7 @@ def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
     scale_refit = bool(get("global_scale_refit", False))
     passes = int(get("scale_refit_rounds", 2)) if scale_refit else 1
     rot_free = str(get("rotation", "free")) == "free"
+    fg_band = float(get("fg_band_m", 0.15))
 
     mesh = trimesh.Trimesh(obj_verts, np.asarray(obj_faces, int), process=False)
     src_pts = np.asarray(trimesh.sample.sample_surface(mesh, n_src, seed=0)[0])
@@ -129,6 +130,14 @@ def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
             continue
         ys, xs = np.nonzero(m)
         z = g[ys, xs]
+        # foreground band: real sensor depth bleeds background values into the
+        # mask at the boundary (halo/misregistration — measured ~8% of the
+        # ERODED kettle_N15 mask is >12cm off the object); reject them here or
+        # they survive the trims and inflate the scale solve.
+        if fg_band > 0:
+            keep = np.abs(z - np.median(z)) < fg_band
+            if keep.sum() >= min_pts:
+                ys, xs, z = ys[keep], xs[keep], z[keep]
         P = np.stack([(xs - cx) / fx * z, (ys - cy) / fy * z, z], 1)
         if len(P) > n_tgt:
             P = P[rng.choice(len(P), n_tgt, replace=False)]
