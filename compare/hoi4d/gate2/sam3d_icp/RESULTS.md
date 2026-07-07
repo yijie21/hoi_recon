@@ -193,3 +193,25 @@ photometric/silhouette term: add mask-IoU (or rendered-silhouette) evidence
 to the registration so width and in-plane translation become observable;
 per-axis (anisotropic) scale from silhouette + fused cloud jointly is the
 concrete next experiment.
+
+## Orientation failure (user-spotted in rc_ab3) + rotation-locked arm (icp5)
+
+The final arm's kettle points the WRONG WAY. Measured: free-rotation ICP
+leaves the image-based stage-3 init by 33° at frame 0 and drifts to 40°
+(icp2) / 68° (icp4) median, max ~97°. Mechanism: the top-down dome is near
+rotation-symmetric, and the 80% trim DISCARDS the spout/handle points that
+would disambiguate — trimmed ICP's classic symmetry trap; sequential init
+then locks the whole clip into the wrong basin. The old flat mesh had the
+same freedom but its appearance barely changes under rotation, so it never
+showed.
+
+Fix option added: `object_icp.rotation: init` (real_forehoi_icp_rotinit.yaml)
+keeps the silhouette tracker's per-frame rotation, ICP solves translation
+only. Result (icp5): direction restored (frame-45 kettle upright, handle at
+hand), IoU 0.46 → 0.59, BUT fit 3.9 → 10.1 mm and wiggle 0.36 → 0.75 cm —
+with wrong lateral proportions NO rigid pose satisfies depth and silhouette
+simultaneously; each mode sacrifices the evidence it isn't given. The
+resolution is not a better trade-off knob but fixing the proportions:
+per-axis scale + joint silhouette-plus-depth objective (b5 slice 1).
+Default config stays rotation: free (best depth numbers); pick rotinit when
+visual orientation matters more.

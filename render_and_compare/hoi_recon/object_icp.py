@@ -37,16 +37,24 @@ def _umeyama_rigid(src, dst):
     return R, mu_d - R @ mu_s
 
 
-def _icp(src_pts, src_tree, tgt, R0, t0, trim, iters):
+def _icp(src_pts, src_tree, tgt, R0, t0, trim, iters, rot_free=True):
     """Trimmed rigid ICP; correspondences target -> canonical mesh samples
-    (the target is a partial front view, so every target point has a match)."""
+    (the target is a partial front view, so every target point has a match).
+    rot_free=False keeps R fixed at R0 and solves translation only — use when
+    rotation comes from image evidence (stage-3 silhouette tracker): the
+    top-down depth patch is near rotation-symmetric AND trimming discards the
+    few disambiguating points (spout/handle), so free rotation walks into a
+    wrong basin (33-97 deg off on kettle_N15) that depth residuals can't see."""
     R, t = R0.copy(), t0.copy()
     prev = np.inf
     res = prev
     for _ in range(iters):
         d, j = src_tree.query((tgt - t) @ R, workers=-1)
         keep = d <= np.quantile(d, trim)
-        R, t = _umeyama_rigid(src_pts[j[keep]], tgt[keep])
+        if rot_free:
+            R, t = _umeyama_rigid(src_pts[j[keep]], tgt[keep])
+        else:
+            t = tgt[keep].mean(0) - R @ src_pts[j[keep]].mean(0)
         res = float(np.sqrt(np.mean(
             np.sum((src_pts[j[keep]] @ R.T + t - tgt[keep]) ** 2, 1))))
         if abs(prev - res) < 1e-6:
@@ -99,6 +107,7 @@ def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
     min_pts = int(get("min_points", 200))
     scale_refit = bool(get("global_scale_refit", False))
     passes = int(get("scale_refit_rounds", 2)) if scale_refit else 1
+    rot_free = str(get("rotation", "free")) == "free"
 
     mesh = trimesh.Trimesh(obj_verts, np.asarray(obj_faces, int), process=False)
     src_pts = np.asarray(trimesh.sample.sample_surface(mesh, n_src, seed=0)[0])
@@ -140,7 +149,9 @@ def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
                 continue
             if R is None:                   # (re)start from the prior trajectory
                 R, t = poses0[i][:3, :3].copy(), poses0[i][:3, 3].copy()
-            R, t, resid[i] = _icp(src_s, tree, P, R, t, trim, iters)
+            if not rot_free:                # image-informed per-frame rotation
+                R = poses0[i][:3, :3].copy()
+            R, t, resid[i] = _icp(src_s, tree, P, R, t, trim, iters, rot_free)
             poses[i] = np.eye(4)
             poses[i][:3, :3], poses[i][:3, 3] = R, t
             if scale_refit:                 # this frame's cloud in canonical frame
