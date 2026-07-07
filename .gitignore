@@ -33,3 +33,8 @@ wget-log
 !egoaero/viz_output/
 !egoaero/viz_output/*.npz
 /do-as-i-do/
+
+# keep the sam3d_icp A/B evidence (override global *.mp4 / *.npz ignores)
+!compare/hoi4d/gate2/sam3d_icp/*.mp4
+!compare/hoi4d/gate2/sam3d_icp/*.npz
+!compare/hoi4d/overlays/*.mp4

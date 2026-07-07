@@ -66,11 +66,48 @@ def run_stage0_geometry(cfg, frame_paths, out_dir):
     Returns dict(intrinsics[3,3] px, extrinsics[T,4,4] world->cam, depth_dir,
     depth_paths, image_size(H,W), camera_source).
     """
+    if cfg.backend.depth == "gt":
+        return _gt_geometry(cfg, frame_paths, out_dir)
     if cfg.backend.depth == "vggt":
         return _vggt_geometry(cfg, frame_paths, out_dir)
     if cfg.backend.depth in ("da3", "depth_anything_3"):
         return _da3_geometry(cfg, frame_paths, out_dir)
     return _moge_geometry(cfg, frame_paths, out_dir)
+
+
+def _gt_geometry(cfg, frame_paths, out_dir):
+    """Ground-truth depth backend: serve external metric depth instead of estimating it.
+
+    Reads sensor depth (e.g. HOI4D align_depth: 16-bit PNG in millimetres) + a 3x3
+    intrinsics .npy, given via env vars RC_GT_DEPTH_DIR and RC_GT_INTRINSICS. Depth is
+    matched to frames by sorted index, converted to metres, resized to the frame size,
+    and saved in the same float16 .npy form as the estimator backends. Per-frame depth
+    in the camera frame; identity extrinsics (static-camera convention, like moge)."""
+    import glob
+    import cv2
+    gt_dir = os.environ.get("RC_GT_DEPTH_DIR")
+    gt_intr = os.environ.get("RC_GT_INTRINSICS")
+    if not gt_dir or not gt_intr:
+        raise BackendNotAvailable(
+            "gt depth backend needs env vars RC_GT_DEPTH_DIR (dir of 16-bit mm depth PNGs) "
+            "and RC_GT_INTRINSICS (3x3 intrinsics .npy)")
+    K = np.load(gt_intr).astype(np.float64)
+    gt_pngs = sorted(glob.glob(os.path.join(gt_dir, "*.png")))
+    if not gt_pngs:
+        raise BackendNotAvailable(f"no depth PNGs found in RC_GT_DEPTH_DIR={gt_dir}")
+    H, W = cv2.imread(frame_paths[0]).shape[:2]
+    depth_dir = os.path.join(out_dir, "depth")
+    depth_paths = []
+    for i in range(len(frame_paths)):
+        dpng = gt_pngs[i] if i < len(gt_pngs) else gt_pngs[-1]
+        d = cv2.imread(dpng, cv2.IMREAD_UNCHANGED).astype(np.float32) / 1000.0  # mm -> m
+        d[d <= 0] = np.nan                                   # invalid depth -> NaN
+        if d.shape[:2] != (H, W):
+            d = cv2.resize(d, (W, H), interpolation=cv2.INTER_NEAREST)
+        depth_paths.append(_save_depth(depth_dir, i, d))
+    extr = np.tile(np.eye(4), (len(frame_paths), 1, 1))
+    return {"intrinsics": K, "extrinsics": extr, "depth_dir": depth_dir,
+            "depth_paths": depth_paths, "image_size": (H, W), "camera_source": "gt"}
 
 
 def _save_depth(depth_dir, i, depth):
@@ -298,7 +335,15 @@ def _object_prompt(boxes, valid, image_size, override=None):
 
 def segment_object(cfg, frames_dir, frame_paths, prompt_xy, out_dir):
     """SAM 2 video segmentation from a single point prompt on frame 0.
-    Returns (masks_dir, mask_paths)."""
+    Returns (masks_dir, mask_paths).
+
+    If RC_OBJECT_MASK_PATTERN is set (a path template with {idx}, e.g.
+    '.../frame_{idx:06d}_masks/object.png'), pre-computed per-frame masks are
+    served instead of running SAM2 — matched by frame index, the same
+    convention as the gt depth backend (RC_GT_DEPTH_DIR)."""
+    pattern = os.environ.get("RC_OBJECT_MASK_PATTERN")
+    if pattern:
+        return _external_object_masks(pattern, frame_paths, out_dir)
     import torch
     predictor = _load_sam2(cfg)
     masks_dir = os.path.join(out_dir, "masks")
@@ -316,6 +361,34 @@ def segment_object(cfg, frames_dir, frame_paths, prompt_xy, out_dir):
             mp = os.path.join(masks_dir, f"{fidx:05d}.npy")
             np.save(mp, m)
             mask_paths[fidx] = mp
+    return masks_dir, mask_paths
+
+
+def _external_object_masks(pattern, frame_paths, out_dir):
+    """Serve pre-computed per-frame object masks (see segment_object docstring).
+    RC_OBJECT_MASK_ERODE (px, default 0) erodes each mask — external masks can
+    hug the boundary and catch background depth at the silhouette edge, which
+    inflates depth-lifted geometry."""
+    import cv2
+    erode = int(os.environ.get("RC_OBJECT_MASK_ERODE", "0"))
+    ke = (cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * erode + 1,) * 2)
+          if erode > 0 else None)
+    masks_dir = os.path.join(out_dir, "masks")
+    os.makedirs(masks_dir, exist_ok=True)
+    H, W = cv2.imread(frame_paths[0]).shape[:2]
+    mask_paths = []
+    for i in range(len(frame_paths)):
+        im = cv2.imread(pattern.format(idx=i), cv2.IMREAD_GRAYSCALE)
+        if im is None:
+            raise BackendNotAvailable(f"external object mask missing: {pattern.format(idx=i)}")
+        m = im > 127
+        if m.shape != (H, W):
+            m = cv2.resize(m.astype(np.uint8), (W, H), interpolation=cv2.INTER_NEAREST) > 0
+        if ke is not None:
+            m = cv2.erode(m.astype(np.uint8), ke) > 0
+        mp = os.path.join(masks_dir, f"{i:05d}.npy")
+        np.save(mp, m)
+        mask_paths.append(mp)
     return masks_dir, mask_paths
 
 

@@ -1,0 +1,9 @@
+{
+ "cloud_to_mesh_med_mm_before": 3.88169614598155,
+ "cloud_to_mesh_med_mm_after": 3.029447514563799,
+ "cloud_to_mesh_p90_mm_before": 45.79597935080529,
+ "cloud_to_mesh_p90_mm_after": 17.895422689616687,
+ "disp_med_mm": 12.928302399814129,
+ "global_scale": 1.1282247304916382,
+ "n_cloud": 80000
+}

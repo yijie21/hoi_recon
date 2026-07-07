@@ -43,7 +43,7 @@ def build_parser():
                    help="pixel (x,y) on the object for SAM2 (a user click); overrides the "
                         "hand-box-centre heuristic — use when the hand HOLDS the object")
     p.add_argument("--depth", default=None,
-                   choices=["moge", "da3", "vggt", "depth_anything_v2", "metric3d"])
+                   choices=["moge", "da3", "vggt", "depth_anything_v2", "metric3d", "gt"])
     p.add_argument("--camera", default=None, choices=["vipe", "droid_slam"])
     return p
 

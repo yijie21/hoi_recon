@@ -51,6 +51,23 @@ def run(ctx) -> Bundle:
         log("CHOIR: ray-scale alignment applied (object slid along camera ray to "
             "match hand depth)")
 
+    # Optional locked-scale rigid ICP: re-register the canonical object mesh
+    # per frame onto the masked depth cloud (replaces the depth-lift-anchored
+    # trajectory; scale stays global — see hoi_recon/object_icp.py).
+    icp_cfg = cfg.get("object_icp") if hasattr(cfg, "get") else None
+    icp_stats = None
+    s_icp = 1.0
+    if icp_cfg and icp_cfg.get("enable", False) and not cfg.mock \
+            and s0.meta.get("has_depth"):
+        from ..object_icp import refine_object_poses
+        s1 = ctx.load("stage1_detect_track")
+        obj_poses, icp_stats = refine_object_poses(
+            obj_verts, obj_faces, obj_poses, s0.assets["depth_dir"],
+            s1.assets["masks_dir"], s0["intrinsics"], icp_cfg)
+        s_icp = icp_stats.get("global_scale", 1.0)
+        if abs(s_icp - 1.0) > 1e-6:         # fused-cloud metric-scale correction
+            obj_verts = obj_verts * s_icp
+
     objw, _ = all_object_world(obj_verts, obj_faces, obj_poses)
     gaps = np.array([contact_gap(hand_verts[i, contact_idx], objw[i]) for i in range(T)])
     log(f"contact-frame surface gap: min={gaps.min()*1000:.1f}mm "
@@ -59,10 +76,12 @@ def run(ctx) -> Bundle:
     meta = {"world_scale": world_scale,
             "gap_min_mm": float(gaps.min() * 1000),
             "gap_median_mm": float(np.median(gaps) * 1000)}
+    if icp_stats is not None:
+        meta["object_icp"] = icp_stats
     arrays = {"hand_verts": hand_verts, "hand_joints": hand_joints,
               "contact_idx": contact_idx, "obj_verts": obj_verts,
               "obj_faces": obj_faces, "obj_poses": obj_poses,
-              "obj_radius": s3.get("radius", np.array(0.0)),
+              "obj_radius": s3.get("radius", np.array(0.0)) * s_icp,
               "gaps": gaps}
     obj_colors = s3.get("colors")              # present only for textured backends (sam3d)
     if obj_colors is not None:
