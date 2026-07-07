@@ -164,3 +164,32 @@ evidence; the first implementation did that and found s=1.005) → re-register.
 On the raw new mesh it recovers **s=1.1455** and lands end-to-end at fit
 3.9/5.7 mm, vis MAE 0.73, wiggle 0.36 cm (pipeline_ab_icp2_icp3_icp4.json) —
 Route B's gain with zero offline steps.
+
+## Silhouette check (2026-07-07): the depth metrics have a blind spot
+
+The 3-row progression videos (rc_ab3_object/hoi_reproj.mp4: baseline / +ICP /
+final) show the final arm's mesh visually hanging off the kettle in 2D while
+its 3D fit is 3.9 mm. silhouette_check.py quantifies what the depth metrics
+can't see (they only score mask pixels the mesh covers; overhang outside the
+mask is invisible to them):
+
+| arm | footprint IoU | area ratio (mesh/mask) | centroid offset |
+|---|---|---|---|
+| base | 0.51 | — | — |
+| icp (flat mesh) | **0.65** | 1.11 | 31 px |
+| icp2 (new mesh) | 0.58 | 1.68 | 26 px |
+| icp4 (+scale 1.146) | 0.46 | 1.94 | 50 px |
+
+Reading: the regenerated SAM-3D kettle's **lateral proportions are too wide**
+(1.68× mask area at scale 1.0 — the depth-only ICP fits the top dome and
+never sees width), the global scale refit fits the cloud's radial relief and
+**amplifies** the lateral excess (1.94×), and the widened depth-flat basin
+lets the pose slide in-plane (50 px). The old flat mesh matched the
+silhouette best precisely because stage 3 scales meshes to the mask bbox.
+So after all modifications: best-ever depth placement/stability, but the
+projected silhouette REGRESSED — depth-only registration cannot arbitrate
+image-space fidelity. This is the sharpest motivation yet for the b5
+photometric/silhouette term: add mask-IoU (or rendered-silhouette) evidence
+to the registration so width and in-plane translation become observable;
+per-axis (anisotropic) scale from silhouette + fused cloud jointly is the
+concrete next experiment.
