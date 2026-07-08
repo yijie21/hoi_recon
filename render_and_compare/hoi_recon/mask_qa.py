@@ -11,6 +11,40 @@ TIOU_MIN = 0.45
 HAND_OVERLAP_MAX = 0.55
 
 
+def reprompt_point(mask):
+    """Re-prompt point for a contaminated object mask -> ((x, y), case).
+
+    The naive centroid of a mug+forearm merged mask lands on the forearm (the
+    bigger blob), so a QA re-prompt from it tracks the arm exclusively (the
+    HOT3D mug screen failure). Arms always enter from the frame edge; a held /
+    desk object does not. So: split into 8-connected components, discard those
+    touching the image border, and return the centroid of the largest
+    surviving component (case "interior"). If nothing survives, fall back to
+    the largest component's centroid (case "border-fallback")."""
+    import cv2
+    n, labels = cv2.connectedComponents(mask.astype(np.uint8), connectivity=8)
+    best_interior, best_interior_area = 0, 0
+    best_any, best_any_area = 0, 0
+    for c in range(1, n):
+        comp = labels == c
+        a = int(comp.sum())
+        if a > best_any_area:
+            best_any, best_any_area = c, a
+        touches_border = (comp[0].any() or comp[-1].any()
+                          or comp[:, 0].any() or comp[:, -1].any())
+        if not touches_border and a > best_interior_area:
+            best_interior, best_interior_area = c, a
+    if best_any == 0:                       # empty mask: degenerate fallback
+        H, W = mask.shape
+        return (W / 2.0, H / 2.0), "empty"
+    if best_interior:
+        c, case = best_interior, "interior"
+    else:
+        c, case = best_any, "border-fallback"
+    ys, xs = np.where(labels == c)
+    return (float(xs.mean()), float(ys.mean())), case
+
+
 def qa_report(mask_paths, hand_boxes, hand_valid):
     T = len(mask_paths)
     area = np.zeros(T)

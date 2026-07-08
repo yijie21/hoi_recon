@@ -1,6 +1,6 @@
 import numpy as np, os, sys, tempfile
 sys.path.insert(0, "/workspace/code/hoi_recon/render_and_compare")
-from hoi_recon.mask_qa import qa_report
+from hoi_recon.mask_qa import qa_report, reprompt_point
 
 def _save(dirn, masks):
     ps = []
@@ -31,3 +31,23 @@ def test_hand_overlap_flags_bad():
         hv = np.tile(np.array([[True, False]]), (6, 1))
         r = qa_report(ps, hb, hv)
         assert r["hand_overlap"].mean() > 0.9 and r["bad"]
+
+def test_reprompt_point_prefers_interior_component():
+    # L-shaped forearm blob entering from the border (bigger) + small interior
+    # object blob: the re-prompt point must land on the interior blob.
+    m = np.zeros((64, 64), bool)
+    m[0:50, 0:10] = True      # arm: vertical bar from the top border
+    m[40:50, 0:30] = True     # arm: horizontal bar (L shape), ~800 px total
+    m[20:30, 45:55] = True    # object: 10x10 interior blob, 100 px
+    (x, y), case = reprompt_point(m)
+    assert case == "interior"
+    assert 45 <= x < 55 and 20 <= y < 30
+
+def test_reprompt_point_falls_back_to_largest():
+    # Everything touches the border: fall back to the largest component.
+    m = np.zeros((64, 64), bool)
+    m[0:30, 0:10] = True      # border blob A (300 px)
+    m[60:64, 40:64] = True    # border blob B (96 px)
+    (x, y), case = reprompt_point(m)
+    assert case == "border-fallback"
+    assert x < 10 and y < 30  # centroid of the larger border blob

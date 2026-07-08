@@ -344,10 +344,12 @@ def segment_object(cfg, frames_dir, frame_paths, prompt_xy, out_dir,
 
     hand_aware_seg (cfg.backend, default False): hands are tracked as their
     own SAM2 objects (positive box prompt at each valid hand box, on the
-    prompt frame) and subtracted from the object mask per frame — SAM2
-    otherwise merges a held object with the arm (the HOT3D mug failure). A
-    mask-QA pass (hoi_recon.mask_qa) then re-prompts from a cleaner anchor
-    frame when the track is bad."""
+    prompt frame) and subtracted from the object mask per frame, and the
+    object prompt additionally carries negative clicks at each hand-box
+    centre — SAM2 otherwise merges a held object with the arm (the HOT3D mug
+    failure). A mask-QA pass (hoi_recon.mask_qa) then re-prompts from a
+    cleaner anchor frame when the track is bad, using a border-aware point
+    (mask_qa.reprompt_point) so the re-prompt never lands on the forearm."""
     pattern = os.environ.get("RC_OBJECT_MASK_PATTERN")
     if pattern:
         return _external_object_masks(pattern, frame_paths, out_dir)
@@ -358,16 +360,19 @@ def segment_object(cfg, frames_dir, frame_paths, prompt_xy, out_dir,
                                 prompt_xy, 0, hand_boxes, hand_valid,
                                 hand_aware)
     if hand_aware:
-        from ..mask_qa import qa_report
+        from ..mask_qa import qa_report, reprompt_point
         from ..logging_utils import log
         r = qa_report(mask_paths, hand_boxes, hand_valid)
         log(f"mask QA: bad={r['bad']} hand_overlap={r['hand_overlap'].mean():.2f} "
             f"best_frame={r['best_frame']}")
         if r["bad"] and r["best_frame"] != 0:
             m = np.load(mask_paths[r["best_frame"]])
-            ys, xs = np.where(m)
-            re_prompt = (float(xs.mean()), float(ys.mean()))
-            log(f"mask QA re-prompt @ frame {r['best_frame']} {re_prompt}", "warn")
+            # Border-aware: the plain centroid of a mug+forearm merged mask
+            # lands on the forearm (bigger blob) and pass 2 then tracks the
+            # arm exclusively (the mug-clip screen failure).
+            re_prompt, case = reprompt_point(m)
+            log(f"mask QA re-prompt @ frame {r['best_frame']} {re_prompt} "
+                f"[{case}]", "warn")
             mask_paths = _run_sam2_once(cfg, frames_dir, len(frame_paths),
                                         masks_dir, re_prompt,
                                         r["best_frame"], hand_boxes,
@@ -377,25 +382,36 @@ def segment_object(cfg, frames_dir, frame_paths, prompt_xy, out_dir,
 
 def _run_sam2_once(cfg, frames_dir, T, masks_dir, prompt_xy, prompt_frame,
                    hand_boxes, hand_valid, hand_aware):
-    """One SAM2 video pass. Object = obj_id 1 (positive click); each hand =
-    its own obj_id (2, 3) prompted by a box, tracked jointly and subtracted.
-    Propagates forward AND backward from prompt_frame."""
+    """One SAM2 video pass. Object = obj_id 1 (positive click + negative
+    clicks at each valid hand-box centre, so the object track never absorbs
+    the hand/arm); each hand = its own obj_id (2, 3) prompted by a box,
+    tracked jointly and subtracted. Propagates forward AND backward from
+    prompt_frame."""
     import torch
     predictor = _load_sam2(cfg)
+
+    def _valid_hand_boxes():
+        if hand_boxes is None:
+            return
+        for h in range(hand_boxes.shape[1]):
+            b = hand_boxes[prompt_frame, h]
+            if hand_valid[prompt_frame, h] and np.isfinite(b).all():
+                yield h, b
+
     obj = {}
     with torch.inference_mode(), torch.autocast(_device(), dtype=torch.bfloat16):
         state = predictor.init_state(video_path=frames_dir)
+        pts, lbls = [prompt_xy], [1]
+        if hand_aware:
+            for _h, b in _valid_hand_boxes():
+                pts.append(((b[0] + b[2]) / 2, (b[1] + b[3]) / 2))
+                lbls.append(0)          # negative: this is the hand, not the object
         predictor.add_new_points_or_box(
             state, frame_idx=prompt_frame, obj_id=1,
-            points=np.array([prompt_xy], np.float32),
-            labels=np.array([1], np.int32))
-        if hand_aware and hand_boxes is not None:
-            for h in range(hand_boxes.shape[1]):
-                if not hand_valid[prompt_frame, h]:
-                    continue
-                b = hand_boxes[prompt_frame, h]
-                if not np.isfinite(b).all():
-                    continue
+            points=np.array(pts, np.float32),
+            labels=np.array(lbls, np.int32))
+        if hand_aware:
+            for h, b in _valid_hand_boxes():
                 predictor.add_new_points_or_box(
                     state, frame_idx=prompt_frame, obj_id=2 + h,
                     box=b.astype(np.float32))
