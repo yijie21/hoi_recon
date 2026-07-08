@@ -205,8 +205,10 @@ hand_tracking_toolkit's camera model, not pinhole K). DexYCB/HO-Cap are the
 drop-in matches for the current harness (real sensor depth, static cams).
 **Verified in-session (2026-07-08)**: HOT3D BOP-clips release downloaded from
 HF `bop-benchmark/hot3d` to `/workspace/datasets/hot3d` (2 Aria clips + all
-33 GLBs); GT overlays are pixel-tight even for in-hand moving objects —
-`compare/hot3d/gt_overlay_hot3d.py`, videos `gt_overlay_hot3d_clip-*.mp4`.
+33 GLBs); GT overlays are pixel-tight even for in-hand moving objects, and the GT
+MANO hands render finger-perfect (MANO pkls made chumpy-free at
+/workspace/datasets/hot3d/mano) — `compare/hot3d/gt_overlay_hot3d.py`,
+videos `gt_overlay_hot3d_clip-*.mp4`.
 GLB units are mm; poses/cameras are quaternion-wxyz world transforms.
 
 ## Blocked / caveats

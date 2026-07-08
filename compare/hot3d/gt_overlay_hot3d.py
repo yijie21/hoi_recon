@@ -20,9 +20,19 @@ import sys
 
 import cv2
 import numpy as np
+import torch
 import trimesh
 from hand_tracking_toolkit import camera as htt_camera
+from hand_tracking_toolkit import dataset as htt_dataset
+from hand_tracking_toolkit.hand_models.mano_hand_model import (
+    MANOHandModel, forward_kinematics)
 from scipy.spatial.transform import Rotation
+
+# MANO model files: chumpy-free pkls (converted in-session with the forehoi
+# env; see BEST_STRATEGY notes). Hands render skin-toned from GT MANO poses.
+MANO_DIR = "/workspace/datasets/hot3d/mano"
+HAND_COLOR = (140, 170, 240)                       # BGR skin tone
+N_PER_HAND = 20000
 
 DS = "/workspace/datasets/hot3d"
 STREAM = "214-1"
@@ -61,6 +71,21 @@ def main():
     print(f"{name}: {len(frames)} frames, objects:",
           {u: names[u]["name"] for u in objs})
 
+    mano = MANOHandModel(MANO_DIR)
+    shp = json.load(open(f"{clip}/__hand_shapes.json__"))
+    betas = torch.tensor(shp["mano"], dtype=torch.float32)
+
+    def hand_meshes(hands_js):
+        """GT MANO verts+faces per posed hand (world frame)."""
+        out = []
+        for side, pc in htt_dataset.decode_hand_pose(hands_js).items():
+            if pc.mano is None:
+                continue
+            _, verts, faces = forward_kinematics(pc.mano, betas, mano)
+            out.append((verts.detach().numpy().astype(np.float64),
+                        faces.detach().numpy().astype(np.int64)))
+        return out
+
     img0 = cv2.imread(frames[0].replace(".objects.json", f".image_{STREAM}.jpg"))
     H, W = img0.shape[:2]
     Wd, Hd = W // B, H // B
@@ -89,6 +114,15 @@ def main():
             pts.append(X)
             cols.append((base[None] * lam[:, None]).astype(np.uint8))
             zs.append(X[:, 2])
+        for hv, hf in hand_meshes(json.load(open(f"{stem}.hands.json"))):
+            hm = trimesh.Trimesh(hv, hf, process=False)
+            Ph, fih = trimesh.sample.sample_surface(hm, N_PER_HAND, seed=0)
+            X = np.asarray(Ph) @ T_cw[:3, :3].T + T_cw[:3, 3]
+            Nc = np.asarray(hm.face_normals)[fih] @ T_cw[:3, :3].T
+            lam = 0.35 + 0.65 * np.clip(-(Nc @ np.array([0.3, -0.5, -0.81])), 0, 1)
+            pts.append(X)
+            cols.append((np.array(HAND_COLOR)[None] * lam[:, None]).astype(np.uint8))
+            zs.append(X[:, 2])
         if pts:
             X = np.concatenate(pts)
             C = np.concatenate(cols)
@@ -112,15 +146,8 @@ def main():
             lay[hole] = cv2.blur(lay, (3, 3))[hole]
             sm[cov] = (0.45 * sm[cov] + 0.55 * lay[cov]).astype(np.uint8)
 
-        hands = json.load(open(f"{stem}.hands.json"))
-        for side, hd in hands.items():
-            box = (hd.get("boxes_amodal") or {}).get(STREAM)
-            if box:
-                x0, y0, x1, y1 = [int(b / B) for b in box]
-                cv2.rectangle(sm, (x0, y0), (x1, y1), (255, 255, 255), 1)
-
         sm = cv2.rotate(sm, cv2.ROTATE_90_CLOCKWISE)
-        label = f"HOT3D {name}  GT objects (mocap) + hand boxes"
+        label = f"HOT3D {name}  GT objects + MANO hands (mocap)"
         cv2.putText(sm, label, (10, 26), FONT, 0.6, (0, 0, 0), 4, cv2.LINE_AA)
         cv2.putText(sm, label, (10, 26), FONT, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(sm, f"frame {fi}", (10, Wd - 12), FONT, 0.55,
