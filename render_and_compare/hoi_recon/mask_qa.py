@@ -81,6 +81,25 @@ def score_track(area, tiou, hand_overlap, border_frac):
     return s
 
 
+HEALTHY_HAND_OVERLAP = 0.35   # minimal-intervention thresholds (see
+HEALTHY_BORDER_FRAC = 0.5     # original_track_healthy)
+
+
+def original_track_healthy(bad, hand_overlap_mean, border_frac):
+    """Minimal-intervention rule: True when the ORIGINAL-click candidate's
+    hand-subtracted track is not bad, barely overlaps the hand boxes, and
+    rarely touches the frame border — the clip never needed intervention, so
+    the vanilla UNSUBTRACTED track from the original click should be used.
+
+    Hand subtraction is not free on a healthy clip: SAM2's hand track
+    overlaps the gripped handle, subtraction shaves real object pixels, and
+    the SAM-3D crop/anchor shifts (potato_masher bench: chamfer 18.9 ->
+    23.7 mm, rot_traj 24.1 -> 58 deg, anchor silhouette IoU collapsed to
+    0.28 — on a clip whose baseline mask was already clean)."""
+    return bool((not bad) and hand_overlap_mean < HEALTHY_HAND_OVERLAP
+                and border_frac < HEALTHY_BORDER_FRAC)
+
+
 SELECT_MARGIN = 0.15   # original-click preference band (see select_track)
 
 

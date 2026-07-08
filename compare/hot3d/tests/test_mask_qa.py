@@ -97,3 +97,13 @@ def test_select_track_original_vetoed():
     # plain argmax, tiebreaker cannot fire.
     idx, fired = select_track([0.20, 0.25], [False, False], original_idx=None)
     assert idx == 1 and not fired
+
+def test_original_track_healthy_six_bench_cases():
+    from hoi_recon.mask_qa import original_track_healthy
+    # v3.2 minimal-intervention rule vs the six observed bench cases:
+    assert original_track_healthy(False, 0.24, 0.32)      # masher  -> vanilla
+    assert original_track_healthy(False, 0.27, 0.00)      # bottle  -> vanilla
+    assert not original_track_healthy(False, 0.43, 0.10)  # vase: ov >= 0.35
+    assert not original_track_healthy(True, 0.10, 0.10)   # mug: original bad
+    assert not original_track_healthy(False, 0.20, 0.94)  # spatula: bf >= 0.5
+    assert not original_track_healthy(True, 0.75, 0.30)   # cube: bad (all-bad)

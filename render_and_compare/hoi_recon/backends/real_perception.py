@@ -349,11 +349,16 @@ def segment_object(cfg, frames_dir, frame_paths, prompt_xy, out_dir,
     are tracked as their own SAM2 objects and subtracted; several candidate
     object clicks (vetoed against the prompt-frame hand masks) are tracked as
     independent SAM2 objects and the best track is selected by mask-QA score
-    (mask_qa.score_track). If EVERY candidate track is bad (an object
-    enclosed by both hands — the HOT3D puzzle_toy cube — leaves only
-    degenerate hand-subtracted slivers), fall back to the vanilla single
-    track from the original click with NO hand subtraction: the merged
-    object+hand mask is the better of two evils there."""
+    (mask_qa.score_track). Minimal-intervention rule: if the ORIGINAL-click
+    candidate's track is healthy (not bad, low hand overlap, low border
+    fraction — mask_qa.original_track_healthy), the vanilla UNSUBTRACTED
+    track from the original click is used instead — hand subtraction shaves
+    real object pixels on clips that never needed rescuing (potato_masher).
+    If EVERY candidate track is bad (an object enclosed by both hands — the
+    HOT3D puzzle_toy cube — leaves only degenerate hand-subtracted slivers),
+    fall back to the vanilla single track from the original click with NO
+    hand subtraction: the merged object+hand mask is the better of two evils
+    there."""
     pattern = os.environ.get("RC_OBJECT_MASK_PATTERN")
     if pattern:
         return _external_object_masks(pattern, frame_paths, out_dir)
@@ -367,13 +372,18 @@ def segment_object(cfg, frames_dir, frame_paths, prompt_xy, out_dir,
                                          False)
     from ..mask_qa import qa_report
     from ..logging_utils import log
-    mask_paths = _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir,
-                                            prompt_xy, hand_boxes, hand_valid)
-    if mask_paths is None:
+    mask_paths, why = _run_sam2_multi_hypothesis(cfg, frames_dir, T,
+                                                 masks_dir, prompt_xy,
+                                                 hand_boxes, hand_valid)
+    if why == "healthy-original":
+        log("original track healthy → vanilla masks (minimal intervention)")
+    elif why == "all-bad":
         log("all candidates bad → vanilla single-track fallback (object "
             "likely enclosed by hands)", "warn")
-        mask_paths = _run_sam2_once(cfg, frames_dir, T, masks_dir, prompt_xy,
-                                    0, hand_boxes, hand_valid, False)
+        if mask_paths is None:      # original click was vetoed: no retained
+            mask_paths = _run_sam2_once(cfg, frames_dir, T, masks_dir,
+                                        prompt_xy, 0, hand_boxes, hand_valid,
+                                        False)
     r = qa_report(mask_paths, hand_boxes, hand_valid)
     log(f"mask QA (chosen track): bad={r['bad']} "
         f"hand_overlap={r['hand_overlap'].mean():.2f} "
@@ -451,15 +461,32 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
          propagation tracks hands and all candidates together.
       4. Per candidate: hand masks are subtracted per frame, the track is
          scored with mask_qa.score_track (tIoU vs hand overlap / area jump /
-         border touching), and the best-scoring track wins.
+         border touching). Minimal-intervention rule first
+         (mask_qa.original_track_healthy): if the ORIGINAL-click candidate's
+         subtracted track is not bad, with low hand overlap and low border
+         fraction, the clip never needed intervention — the original click's
+         UNSUBTRACTED masks (retained during propagation) are used instead.
+         Otherwise the best-scoring track wins (original-click preference
+         within SELECT_MARGIN).
 
-    Returns mask_paths, or None when no candidate survives the veto or every
-    candidate track is bad=True (an object enclosed by both hands leaves only
-    degenerate hand-subtracted slivers) — the caller then falls back to the
-    vanilla single track without hand subtraction."""
+    Returns (mask_paths, reason):
+      (masks, "selected")         — best-scoring hand-subtracted track;
+      (masks, "healthy-original") — minimal intervention: vanilla masks of
+                                    the original click, no hand subtraction;
+      (masks, "all-bad")          — every track bad but the original click
+                                    survived the veto: its retained
+                                    unsubtracted masks (identical to a
+                                    single-object vanilla pass — SAM2 tracks
+                                    objects independently and
+                                    non_overlap_masks is off — so the second
+                                    SAM2 pass is skipped);
+      (None,  "all-bad")          — every track bad / no survivor AND the
+                                    original click was vetoed: the caller
+                                    must run the vanilla pass itself."""
     import shutil
     import torch
-    from ..mask_qa import SELECT_MARGIN, qa_report, score_track, select_track
+    from ..mask_qa import (SELECT_MARGIN, original_track_healthy, qa_report,
+                           score_track, select_track)
     from ..logging_utils import log
     predictor = _load_sam2(cfg)
 
@@ -513,7 +540,7 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
             cands.append((cx, cy))
         if not cands:
             log("no candidate click survives the hand-mask veto", "warn")
-            return None
+            return None, "all-bad"
 
         for k, c in enumerate(cands):
             predictor.add_new_points_or_box(
@@ -522,17 +549,32 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
                 labels=np.array([1], np.int32))
 
         # 3. one joint propagation; stream per-candidate hand-subtracted
-        # masks straight to disk (no T x H x W x K accumulation in memory)
+        # masks straight to disk (no T x H x W x K accumulation in memory).
+        # The original candidate's UNSUBTRACTED masks are retained too: they
+        # are what a vanilla single-object pass would produce (objects are
+        # tracked independently), so the minimal-intervention and all-bad
+        # paths can reuse them without a second SAM2 pass.
         cand_dirs = [os.path.join(masks_dir, f"cand{k}")
                      for k in range(len(cands))]
         for d in cand_dirs:
             os.makedirs(d, exist_ok=True)
         cand_paths = [[None] * T for _ in cands]
+        raw_dir, raw_paths = None, None
+        if original_idx is not None:
+            raw_dir = os.path.join(masks_dir, "orig_raw")
+            os.makedirs(raw_dir, exist_ok=True)
+            raw_paths = [None] * T
 
         def _consume(it):
             for fidx, ids, logits in it:
                 ms = {int(o): (logits[k] > 0).squeeze().cpu().numpy().astype(bool)
                       for k, o in enumerate(ids)}
+                if raw_paths is not None:
+                    mo = ms.get(10 + original_idx)
+                    if mo is not None:
+                        rp = os.path.join(raw_dir, f"{fidx:05d}.npy")
+                        np.save(rp, mo)
+                        raw_paths[fidx] = rp
                 hand_union = None
                 for hid in hand_ids:
                     hm = ms.get(hid)
@@ -553,9 +595,9 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
             _consume(predictor.propagate_in_video(
                 state, start_frame_idx=prompt_frame, reverse=True))
 
-    # 4. score every candidate track, select (original-click preference
-    # within SELECT_MARGIN); all bad -> fall back to vanilla single track
-    scores, bads = [], []
+    # 4. score every candidate track; minimal-intervention check; then
+    # select (original-click preference within SELECT_MARGIN)
+    scores, bads, reports = [], [], []
     for k, c in enumerate(cands):
         r = qa_report(cand_paths[k], hand_boxes, hand_valid)
         s = score_track(r["area"], r["tiou"], r["hand_overlap"],
@@ -566,29 +608,50 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
             f"border={r['border_frac']:.2f} bad={r['bad']}")
         scores.append(s)
         bads.append(bool(r["bad"]))
-    best_k, tiebreak = select_track(scores, bads, original_idx=original_idx)
-    if best_k is None:
+        reports.append(r)
+
+    def _cleanup():
         for d in cand_dirs:
             shutil.rmtree(d, ignore_errors=True)
+        if raw_dir is not None:
+            shutil.rmtree(raw_dir, ignore_errors=True)
+
+    def _promote(paths):
+        out = [None] * T
+        for fidx, cp in enumerate(paths):
+            if cp is None:
+                continue
+            mp = os.path.join(masks_dir, f"{fidx:05d}.npy")
+            os.replace(cp, mp)
+            out[fidx] = mp
+        return out
+
+    if original_idx is not None and original_track_healthy(
+            bads[original_idx],
+            float(reports[original_idx]["hand_overlap"].mean()),
+            reports[original_idx]["border_frac"]):
+        out = _promote(raw_paths)
+        _cleanup()
+        return out, "healthy-original"
+
+    best_k, tiebreak = select_track(scores, bads, original_idx=original_idx)
+    if best_k is None:
         log(f"all {len(cands)} candidate tracks bad=True — no usable "
             "hand-subtracted track", "warn")
-        return None
+        if raw_paths is not None:   # reuse the retained vanilla-equivalent
+            out = _promote(raw_paths)
+            _cleanup()
+            return out, "all-bad"
+        _cleanup()
+        return None, "all-bad"
     if tiebreak:
         log(f"original-click preference: candidate {best_k} "
             f"(score={scores[best_k]:.3f}) kept over top scorer "
             f"(score={max(scores):.3f}, margin<{SELECT_MARGIN})")
     log(f"seg candidate {best_k} selected (score={scores[best_k]:.3f})")
-
-    mask_paths = [None] * T
-    for fidx, cp in enumerate(cand_paths[best_k]):
-        if cp is None:
-            continue
-        mp = os.path.join(masks_dir, f"{fidx:05d}.npy")
-        os.replace(cp, mp)
-        mask_paths[fidx] = mp
-    for d in cand_dirs:                      # losers (and the emptied winner)
-        shutil.rmtree(d, ignore_errors=True)
-    return mask_paths
+    out = _promote(cand_paths[best_k])
+    _cleanup()
+    return out, "selected"
 
 
 def _external_object_masks(pattern, frame_paths, out_dir):
