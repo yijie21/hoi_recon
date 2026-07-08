@@ -105,40 +105,65 @@ export RC_GT_DEPTH_DIR=<clip>/depth RC_GT_INTRINSICS=<clip>/intrin.npy   # or vg
 
 | limit | evidence | mitigation in code |
 |---|---|---|
-| Rotation weakly observable from top-down depth; trimming discards the disambiguating spout/handle points → ICP walks 33–97° from the image-based init | `sam3d_icp/RESULTS.md` (orientation section), `rc_ab_rotation_*.mp4` | `object_icp.rotation: init` keeps the stage-3 silhouette-tracker rotation, ICP solves translation only (`configs/real_forehoi_icp_rotinit.yaml`). Trade-off: direction right, depth fit 3.9→10.1 mm |
-| SAM-3D mesh lateral proportions too wide (1.68× mask footprint) → no rigid pose satisfies depth AND silhouette; global scale refit amplifies it | `sam3d_icp/silhouette_check.py`, IoU table in RESULTS.md | none yet — this is the next build (below) |
+| Rotation weakly observable from top-down depth; trimming discards the disambiguating spout/handle points → ICP walks 33–97° from the image-based init | `sam3d_icp/RESULTS.md` (orientation section), `rc_ab_rotation_*.mp4` | joint refinement (`_joint_refine`): rotation starts at the image-based init, silhouette DT term supplies the image-space gradient, w_rot_prior=10 keeps it out of the symmetric basin |
+| SAM-3D mesh lateral proportions too wide (1.68× mask footprint) → no rigid pose satisfies depth AND silhouette; global isotropic scale refit amplifies it | `sam3d_icp/silhouette_check.py`, IoU table in RESULTS.md | per-axis scale in `_joint_refine` — found [1.088, 0.944, 1.109]: lateral axis shrunk, footprint 1.94×→1.36×, IoU 0.46→0.69 |
 | "GT" sensor depth is not pixel-perfect: boundary halo, ±20 px frame-to-frame depth↔RGB wobble, ~8% background contamination inside the eroded mask | measured in-session (RESULTS.md) | `fg_band_m` filter in `object_icp.py`; erosion; treat scale estimates from pre-filter runs (1.13–1.18) as upper bounds |
 | Depth metrics have a silhouette blind spot (only score covered mask pixels; overhang invisible) | `silhouette_check.py` | always render the reprojection overlays (`hoi_recon/viz/reproject.py`, auto-generated `*_reproj.mp4`) and run `silhouette_check.py` alongside `eval_pipeline_ab.py` |
 
 ### 6. Scoreboard (kettle_N15, GT depth, stages 4–8 from identical caches)
 
-| arm | object placement | 3D fit med/p90 | vis MAE | wiggle | silh. IoU |
-|---|---|---|---|---|---|
-| base | depth-lift, flat archived mesh | 9.9/22.4 mm | 2.95 cm | 1.59 cm | 0.51 |
-| icp | + rigid ICP | 4.8/6.5 mm | 1.03 cm | 0.65 cm | **0.65** |
-| icp2 | + regenerated SAM-3D mesh | 4.2/6.9 mm | **0.69 cm** | 0.37 cm | 0.58 |
-| icp4 | + global scale refit (rot free) | **3.9/5.7 mm** | 0.73 cm | **0.36 cm** | 0.46 |
-| icp5 | rot locked to silhouette tracker | 10.1/10.8 mm | 1.18 cm | 0.75 cm | 0.59 |
+| arm | object placement | 3D fit med/p90 | vis MAE | bias | wiggle | silh. IoU | footprint |
+|---|---|---|---|---|---|---|---|
+| base | depth-lift, flat archived mesh | 9.9/22.4 mm | 2.95 cm | — | 1.59 cm | 0.51 | — |
+| icp | + rigid ICP | 4.8/6.5 mm | 1.03 cm | −1.03 | 0.65 cm | 0.65 | 1.11× |
+| icp2 | + regenerated SAM-3D mesh | 4.2/6.9 mm | 0.69 cm | −0.69 | 0.37 cm | 0.58 | 1.68× |
+| icp4 | + global scale refit (rot free) | **3.9/5.7 mm** | 0.73 cm | −0.73 | **0.36 cm** | 0.46 | 1.94× |
+| icp5 | rot locked to silhouette tracker | 10.1/10.8 mm | 1.18 cm | −1.17 | 0.75 cm | 0.59 | 1.67× |
+| **icpj3** | **joint depth+silhouette, per-axis scale** | 11.3/12.1 mm | **0.67 cm** | **−0.42** | 0.66 cm | **0.69** | **1.36×** |
 
-No single arm wins everything — icp4 is the depth/stability champion, icp5
-has the right orientation, icp has the best silhouette. That split is the
-precise definition of the next build. (icp6/icp7 — the fg-band reruns —
-were stopped mid-flight; ignore those run dirs.)
+**icpj3 (config `real_forehoi_icp_joint.yaml`) is the current default arm**:
+best visible-surface accuracy, best (smallest) depth bias, best silhouette
+IoU and footprint, orientation kept from the image-based track. Read the two
+lagging columns correctly: icp4's 3.9 mm `fit` and 0.36 cm wiggle are earned
+with a 33–97°-wrong rotation exploiting the dome symmetry — `fit_mm` rewards
+that cheat, and its rigid-basin convergence is artificially stable. icpj3's
+remaining wiggle is data-driven (the ±20 px depth↔RGB wobble): w_temp 8
+over-smooths and gets worse; w_temp 2.5 is the optimum found.
+Per-axis scale found [1.088, 0.944, 1.109] — the silhouette SHRANK the wide
+lateral axis while depth grew the observed axes; the isotropic refit (1.146)
+could not express this and inflated the footprint instead.
+(icp6/icp7 — the fg-band reruns — were stopped mid-flight and removed;
+icpj/icpj2/icpj4 were tuning variants, also removed.)
 Eval code: `compare/hoi4d/gate2/sam3d_icp/{eval_pipeline_ab.py,
-silhouette_check.py}`; videos: `rc_ab*.mp4` in the same folder.
+silhouette_check.py}`; videos: `rc_ab*.mp4`, joint arm:
+`rc_ab_joint_{object,hoi}_reproj.mp4` in the same folder.
 
-## Next build (the one experiment that resolves the split)
+## The joint registration (built 2026-07-08 — was "next build")
 
-**Joint depth + silhouette registration with per-axis scale**: extend
-`object_icp.py`'s per-frame objective with a rendered-silhouette / mask-IoU
-term (and optionally a small rotation prior toward the stage-3 track), and
-promote the global scale to a per-axis (anisotropic) similarity solved from
-fused cloud + silhouette jointly. Expected: icp4's seating + icp5's
-orientation + ~1.1× footprint in one run. This is also exactly slice 1 of
-the b5 photometric refiner (`idea-loop-reports/2026-07-03-4dgs-jitter-free-
-hoi/branches/b5-gs-universal-refiner.md`) — the surviving research
-direction; its remaining budget after the substrate work: object 9.6→1.4 cm,
-hand 8.2→3.1 cm, jitter 1.7→0.65 cm (RC_MATRIX_RESULTS.md).
+`object_icp.py::_joint_refine`, enabled by `object_icp.joint_silhouette` in
+`configs/real_forehoi_icp_joint.yaml`. Torch (GPU), ~15 s for 75 frames on
+top of the ICP init. Optimizes per-frame rotation deltas + translations and
+ONE global per-axis log-scale against: (a) trimmed depth correspondences in
+mm, refreshed each round; (b) a distance-transform out-of-silhouette penalty,
+bilinearly sampled so it is differentiable, with allowed region = object
+mask ∪ valid hand boxes (the object legitimately projects behind the
+occluding hand); (c) a coverage term (visible mask pixels must be near a
+projected mesh point); (d) a small prior toward the image-based init
+rotations plus second-difference smoothness on the ABSOLUTE trajectory
+(the init rotations themselves jitter, so smoothing deltas alone fails —
+measured: icpj vs icpj3). Pixels and mm are naturally comparable at this
+camera (~1.1 mm/px), so unit-ish weights balance (w_sil 1, w_cov 0.3,
+w_rot_prior 10, w_temp 2.5).
+
+## Next build
+
+The registration side is now jointly constrained. The remaining levers, in
+expected-value order: (1) hand side — HaWoR/HaMeR anchors (hand-depth
+closure was only 0.16 in the matrix); (2) photometric refinement on top of
+the joint track (b5 slice 2 —
+`idea-loop-reports/2026-07-03-4dgs-jitter-free-hoi/branches/
+b5-gs-universal-refiner.md`); (3) multi-clip validation of icpj3 once
+`/workspace/hoi4d` is restored — every number above is kettle_N15.
 
 ## Blocked / caveats
 

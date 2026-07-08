@@ -63,9 +63,14 @@ def run(ctx) -> Bundle:
         s1 = ctx.load("stage1_detect_track")
         obj_poses, icp_stats = refine_object_poses(
             obj_verts, obj_faces, obj_poses, s0.assets["depth_dir"],
-            s1.assets["masks_dir"], s0["intrinsics"], icp_cfg)
+            s1.assets["masks_dir"], s0["intrinsics"], icp_cfg,
+            hand_boxes=s1.get("hand_boxes"), hand_valid=s1.get("hand_valid"))
         s_icp = icp_stats.get("global_scale", 1.0)
-        if abs(s_icp - 1.0) > 1e-6:         # fused-cloud metric-scale correction
+        s_axes = icp_stats.get("global_scale_axes")
+        if s_axes is not None:              # anisotropic (joint silhouette)
+            obj_verts = obj_verts * np.asarray(s_axes, dtype=obj_verts.dtype)
+            s_icp = float(np.cbrt(np.prod(s_axes)))   # volume-equivalent radius
+        elif abs(s_icp - 1.0) > 1e-6:       # fused-cloud metric-scale correction
             obj_verts = obj_verts * s_icp
 
     objw, _ = all_object_world(obj_verts, obj_faces, obj_poses)
