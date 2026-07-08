@@ -98,8 +98,91 @@ def _so3_exp(r):
     return I + s * K + (1 - c) * (K @ K)
 
 
+def _rotz(a):
+    """Rotation about the canonical +z axis by angle `a` (radians)."""
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+
+
+def _rot_axis(axis, a):
+    """Rotation by `a` (radians) about canonical axis 0/1/2 (x/y/z)."""
+    c, s = np.cos(a), np.sin(a)
+    R = np.eye(3)
+    i, j = [(1, 2), (2, 0), (0, 1)][axis]
+    R[i, i], R[i, j] = c, -s
+    R[j, i], R[j, j] = s, c
+    return R
+
+
+def _attitude_hypotheses(n_hyp):
+    """Azimuth hypotheses for the anchor attitude search.
+
+    The object 'up'/symmetry axis is unknown, so — as the brief prescribes when
+    unsure — we grid the azimuth about ALL THREE canonical axes with n_hyp//3
+    equally-spaced non-zero rotations each, plus the identity (no correction).
+    Returns 1 + 3*(n_hyp//3) numpy 3x3 rotations (e.g. n_hyp=12 -> 13). Fully
+    deterministic (fixed angular grid, no randomness)."""
+    per = max(1, int(n_hyp) // 3)          # non-identity rotations per axis
+    hyps = [np.eye(3)]
+    for axis in range(3):
+        for k in range(1, per + 1):
+            hyps.append(_rot_axis(axis, 2.0 * np.pi * k / (per + 1)))
+    return hyps
+
+
+def _score_hypothesis(src_pts, tgt, masks_dir, K, R, t, s, src_cols,
+                      frames_dir, frame, rng):
+    """Cheap numpy score for one attitude hypothesis at a single anchor frame
+    (lower is better): trimmed depth RMS (mm) + mean out-of-mask distance
+    transform (px) of projected points + (if colors available) mean LAB-chroma
+    mismatch of in-mask points (÷10, matching the in-loop photometric scaling).
+
+    Kept deliberately light: KDTree depth RMS on <=2000 mesh points, image-space
+    terms on <=500 projected points. `rng` is passed fresh-seeded per hypothesis
+    so every hypothesis is scored on the SAME point subset (fair + deterministic)."""
+    import cv2
+    from scipy.spatial import cKDTree
+
+    fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
+    src_s = src_pts * s
+    n = len(src_s)
+    idx = rng.choice(n, min(2000, n), replace=False)
+    Xc = src_s[idx] @ R.T + t                       # posed points, camera frame
+    # (a) trimmed depth RMS: nearest posed point to each target point
+    d, _ = cKDTree(Xc).query(tgt, workers=-1)
+    keep = d <= np.quantile(d, 0.8)
+    score = float(np.sqrt(np.mean(d[keep] ** 2)) * 1000.0)
+    # image-space terms on a <=500 subset of the posed points
+    pj = np.arange(len(Xc)) if len(Xc) <= 500 \
+        else rng.choice(len(Xc), 500, replace=False)
+    Xp = Xc[pj]
+    z = np.clip(Xp[:, 2], 0.1, None)
+    m = np.load(os.path.join(masks_dir, f"{frame:05d}.npy")) > 0
+    H, W = m.shape
+    dt = cv2.distanceTransform((~m).astype(np.uint8), cv2.DIST_L2, 3)
+    ui = np.clip(np.round(Xp[:, 0] / z * fx + cx).astype(int), 0, W - 1)
+    vi = np.clip(np.round(Xp[:, 1] / z * fy + cy).astype(int), 0, H - 1)
+    dt_pt = dt[vi, ui]
+    score += float(dt_pt.mean())
+    # (c) optional LAB-chroma mismatch of in-mask projected points
+    if src_cols is not None and frames_dir is not None:
+        img = cv2.imread(os.path.join(frames_dir, f"{frame:05d}.jpg"))
+        if img is not None:
+            inmask = dt_pt < 1.0
+            if inmask.any():
+                lab_img = cv2.cvtColor(img, cv2.COLOR_BGR2LAB).astype(np.float32)
+                cols = np.asarray(src_cols, np.float32)[idx][pj]
+                lab_pts = cv2.cvtColor((cols[None] * 255).astype(np.uint8),
+                                       cv2.COLOR_RGB2LAB)[0].astype(np.float32)
+                ia = lab_img[vi, ui, 1:] - 128.0
+                pa = lab_pts[:, 1:] - 128.0
+                chroma = np.sqrt(((ia - pa) ** 2).sum(1))
+                score += float(chroma[inmask].mean()) / 10.0
+    return score
+
+
 def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
-                  hand_valid, get):
+                  hand_valid, get, src_cols=None, frames_dir=None):
     """Joint depth + silhouette refinement (torch, GPU if available): per-frame
     rigid poses AND one global per-axis (anisotropic) canonical scale.
 
@@ -186,6 +269,29 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
     dts_t = tt(dts).unsqueeze(1)
     cov_t, cov_ok_t = tt(cov_px), tt(cov_ok, torch.bool)
 
+    # photometric term: LAB *chroma* (a,b) of each projected colored mesh point
+    # vs the image at its projection. Differentiable via grid_sample on the
+    # downsampled a,b planes (shares the silhouette subset + its projection grid).
+    # Chroma (not luminance L) so it is robust to shading/exposure. Off unless a
+    # textured mesh (src_cols) AND the frames dir are both available.
+    w_photo = float(get("w_photo", 0.0))
+    use_photo = w_photo > 0 and src_cols is not None and frames_dir is not None
+    labs_t = pt_ab = None
+    if use_photo:
+        labs = np.zeros((T, 2, Hd, Wd), np.float32)
+        for i in valid:
+            img = cv2.imread(os.path.join(frames_dir, f"{i:05d}.jpg"))
+            if img is None:
+                continue
+            img = cv2.resize(img, (Wd, Hd), interpolation=cv2.INTER_AREA)
+            lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB).astype(np.float32)
+            labs[i] = lab[..., 1:].transpose(2, 0, 1) - 128.0     # a,b centered
+        labs_t = tt(labs)
+        pc = np.asarray(src_cols, np.float32)[sil_idx.cpu().numpy()]
+        lab_pts = cv2.cvtColor((pc[None] * 255).astype(np.uint8),
+                               cv2.COLOR_RGB2LAB)[0].astype(np.float32)
+        pt_ab = tt(lab_pts[:, 1:] - 128.0)                        # [n_sil, 2]
+
     r = torch.zeros(T, 3, device=dev, requires_grad=True)
     dt_t = torch.zeros(T, 3, device=dev, requires_grad=True)
     ls = torch.full((3,), float(np.log(s0)), device=dev, requires_grad=True)
@@ -250,13 +356,37 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
                 + ((Rv[2:] - 2 * Rv[1:-1] + Rv[:-2]) ** 2).sum((1, 2)).mean()
             loss = w_depth * loss_d + w_sil * loss_s + w_cov * loss_c \
                 + w_rot * loss_r + w_temp * loss_t
+            # photometric: chroma mismatch of IN-mask projected points. Sampled
+            # with the SAME `grid` as the DT term. Scaling rationale: LAB a,b are
+            # in ~[-128,127]; a chroma mismatch between a correctly- vs wrongly-
+            # placed color region is typically 20-60 units, so ÷10 maps it to
+            # ~2-6 — comparable to loss_d (mm smooth_l1 ~1-5) and loss_s (px
+            # ~1-3). At w_photo=0.5 the term is a meaningful azimuth nudge that
+            # does not dominate the geometric fit. Restricting to inliers
+            # (dt_s<2px) avoids penalizing points that overhang the mask (whose
+            # image color is background, not the object).
+            loss_p_val = 0.0
+            if use_photo:
+                im_ab = F.grid_sample(labs_t[vf], grid, align_corners=False,
+                                      padding_mode="border")[:, :, 0]  # [F,2,n]
+                d_ab = im_ab.permute(0, 2, 1) - pt_ab.unsqueeze(0)     # [F,n,2]
+                inlier = (dt_s < 2.0).float()
+                # eps inside sqrt: sqrt'(0)=inf, and inf*inlier(0) -> NaN would
+                # poison the whole backward when a point's color exactly matches
+                # the image (baked colors / border padding). eps keeps the
+                # gradient finite while preserving L2-chroma semantics.
+                loss_p = (((d_ab ** 2).sum(-1) + 1e-8).sqrt() * inlier).sum() \
+                    / inlier.sum().clamp(min=1.0) / 10.0
+                loss = loss + w_photo * loss_p
+                loss_p_val = loss_p.item()
             loss.backward()
             opt.step()
             with torch.no_grad():
                 ls.clamp_(np.log(s_lo), np.log(s_hi))
         log(f"joint refine round {rnd + 1}/{rounds}: depth={loss_d.item():.2f}mm "
             f"sil={loss_s.item():.2f}px cov={loss_c.item():.2f}px "
-            f"s_axes={np.round(ls.exp().detach().cpu().numpy(), 4)}")
+            + (f"photo={loss_p_val:.2f} " if use_photo else "")
+            + f"s_axes={np.round(ls.exp().detach().cpu().numpy(), 4)}")
 
     with torch.no_grad():
         R, t = poses_now()
@@ -275,7 +405,8 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
 
 
 def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
-                        opts=None, hand_boxes=None, hand_valid=None):
+                        opts=None, hand_boxes=None, hand_valid=None,
+                        obj_colors=None, frames_dir=None):
     """Return (poses[T,4,4], stats) — per-frame rigid registration of the
     canonical mesh onto masked depth. Frame 0 initializes from poses0[0];
     frame t from the t-1 result (poses0[t] as re-init after gaps). Frames
@@ -301,7 +432,16 @@ def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
     fg_band = float(get("fg_band_m", 0.15))
 
     mesh = trimesh.Trimesh(obj_verts, np.asarray(obj_faces, int), process=False)
-    src_pts = np.asarray(trimesh.sample.sample_surface(mesh, n_src, seed=0)[0])
+    sampled = trimesh.sample.sample_surface(mesh, n_src, seed=0)
+    src_pts = np.asarray(sampled[0])
+    src_fidx = np.asarray(sampled[1])          # source face of each sampled point
+    # per-surface-point color (mean of the sampled face's vertex colors); None
+    # for the depth-lift fallback mesh, which carries no vertex colors.
+    src_cols = None
+    if obj_colors is not None:
+        fc = np.asarray(obj_colors)[np.asarray(mesh.faces)].mean(1)   # per-face
+        src_cols = fc[src_fidx]                # [n_src, 3] in 0-1
+    frames_dir = frames_dir or None            # treat "" (no frames) as absent
     rng = np.random.default_rng(0)
     ker = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * erode + 1,) * 2)
     fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
@@ -367,11 +507,40 @@ def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
             break
         s = s_new
 
+    # Anchor attitude search: the near-symmetric depth patch leaves azimuth
+    # unobservable, so a wrong-but-locally-stable rotation basin can survive ICP.
+    # Before the (local, gradient) joint refine, do a global discrete search over
+    # azimuth hypotheses about all three canonical axes, scored numpy-only at the
+    # single MOST-reliable frame (lowest ICP residual), and apply the winning
+    # canonical-frame rotation G to the WHOLE track (so it stays temporally
+    # consistent). G left-composed on the right: R_i <- R_i @ G.
+    n_hyp = int(get("attitude_search", 0))
+    if n_hyp > 1 and np.isfinite(resid).any():
+        a = int(np.nanargmin(resid))
+        hyps = _attitude_hypotheses(n_hyp)
+        best_sc, best_G = np.inf, np.eye(3)
+        R_a, t_a = poses[a][:3, :3], poses[a][:3, 3]
+        for G in hyps:
+            # fresh rng(0) per hypothesis -> identical point subset for a fair,
+            # deterministic comparison
+            sc = _score_hypothesis(src_pts, targets[a], masks_dir, K, R_a @ G,
+                                   t_a, s, src_cols, frames_dir, a,
+                                   np.random.default_rng(0))
+            if sc < best_sc:
+                best_sc, best_G = sc, G
+        applied = not np.allclose(best_G, np.eye(3))
+        if applied:
+            for i in range(T):
+                poses[i][:3, :3] = poses[i][:3, :3] @ best_G
+        log(f"attitude search: {len(hyps)} hyps at anchor frame {a}, "
+            f"best score={best_sc:.2f}, azimuth "
+            f"{'correction applied' if applied else 'identity (no change)'}")
+
     s_axes = None
     if bool(get("joint_silhouette", False)):
         poses, s_axes, resid = _joint_refine(
             src_pts, targets, masks_dir, K, poses, s, hand_boxes, hand_valid,
-            get)
+            get, src_cols=src_cols, frames_dir=frames_dir)
         s = 1.0                 # the per-axis scale subsumes the isotropic one
 
     ok = ~np.isnan(resid)

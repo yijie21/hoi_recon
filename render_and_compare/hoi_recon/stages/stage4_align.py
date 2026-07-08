@@ -64,7 +64,9 @@ def run(ctx) -> Bundle:
         obj_poses, icp_stats = refine_object_poses(
             obj_verts, obj_faces, obj_poses, s0.assets["depth_dir"],
             s1.assets["masks_dir"], s0["intrinsics"], icp_cfg,
-            hand_boxes=s1.get("hand_boxes"), hand_valid=s1.get("hand_valid"))
+            hand_boxes=s1.get("hand_boxes"), hand_valid=s1.get("hand_valid"),
+            obj_colors=s3.get("colors"),          # None for depth-lift fallback
+            frames_dir=s0.assets.get("frames_dir"))
         s_icp = icp_stats.get("global_scale", 1.0)
         s_axes = icp_stats.get("global_scale_axes")
         if s_axes is not None:              # anisotropic (joint silhouette)

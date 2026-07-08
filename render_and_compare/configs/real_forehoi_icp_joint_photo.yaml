@@ -1,0 +1,67 @@
+# Robust single-env REAL config for this machine (RTX 4090, sm_89).
+# Everything runs in the `forehoi` conda env (torch 2.5.1+cu121) which already
+# holds MoGe, SAM2, ultralytics, HaMeR deps, chumpy, pytorch3d, kaolin and the
+# sam3d_objects fork (MV_SAM3D). No second env needed: sam3d_env == forehoi.
+#
+#   conda run -n forehoi python -m hoi_recon.cli --video examples/wild6_trim.mp4 \
+#       --out runs/wild6_real --real --config configs/real_forehoi.yaml
+#
+# Real backends: MoGe-2 depth, WiLoR YOLO hand boxes, SAM2 object seg,
+# HaMeR->MANO hand, SAM-3D-Objects textured mesh (fails soft to depth-lift hull),
+# in-process silhouette object-rotation tracker, numpy joint hand+object grasp
+# optimization. Avoids the heavy differentiable PyTorch3D subprocess so it is
+# robust end-to-end on a shared GPU.
+mock: false
+
+backend:
+  hand: hamer            # HaMeR -> MANO (metric depth-anchored)
+  object: sam3d          # SAM-3D-Objects textured mesh (fail-soft depth-lift)
+  depth: moge            # MoGe-v2 metric depth + intrinsics
+  object_pose: silhouette  # in-process rotation tracker (no subprocess)
+  camera: identity       # static-camera assumption (no VIPE)
+  sam3d_env: sam3d5090   # SAM-3D subprocess env (Blackwell rebuild, torch 2.8+cu128)
+  hand_aware_seg: true   # T1: track hands as SAM2 objects, subtract + mask QA
+
+optim:
+  differentiable: false  # numpy rigid joint hand+object grasp (in-process, robust)
+  iters: 200
+  lr: 0.02
+  w_contact: 1.0
+  w_pen: 0.3
+  w_temporal: 0.2
+  w_anchor: 0.02
+  joint:                 # ICP places the object to ~6mm: trust its track, close
+    w_seat: 1.0          # the grasp by moving the HAND (defaults: seat 3.0,
+    w_prior_obj: 200.0   # prior_obj 25.0 — tuned for the depth-lift track)
+
+contact:
+  dist_thresh_m: 0.02
+  normal_thresh_deg: 60.0
+  knn_k: 50
+
+smoothing:
+  window: 5
+
+object_icp:              # stage4: locked-scale rigid ICP object placement
+  enable: true           # register canonical mesh onto masked depth per frame
+  trim: 0.8              # keep best 80% of target->mesh correspondences
+  iters: 60
+  erode_px: 5            # mask erosion (keep silhouette-edge bg depth out)
+  max_points: 3000       # target cloud subsample per frame
+  mesh_samples: 20000    # canonical surface samples
+  global_scale_refit: true
+  rotation: init          # joint stage refines rotation with the silhouette gradient
+  scale_refit_rounds: 2
+  joint_silhouette: true # joint depth+silhouette refinement, per-axis scale
+  joint_rounds: 4
+  joint_iters: 80
+  joint_sil_points: 2000
+  sil_coverage_px: 300
+  sil_downsample: 4
+  w_depth: 1.0
+  w_sil: 1.0
+  w_cov: 0.3
+  w_rot_prior: 10.0
+  w_temp: 2.5
+  w_photo: 0.5           # T2: in-loop LAB-chroma photometric term (0 = off)
+  attitude_search: 12    # T2: N azimuth hypotheses (all 3 axes) at anchor frame
