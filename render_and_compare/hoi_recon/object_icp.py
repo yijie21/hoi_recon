@@ -139,6 +139,10 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
 
     T = len(poses0)
     valid = [i for i in range(T) if targets[i] is not None]
+    if not valid:
+        raise RuntimeError(
+            "object ICP: no frames with valid mask∧depth — segmentation "
+            "likely failed")
     m0 = np.load(os.path.join(masks_dir, f"{valid[0]:05d}.npy"))
     H, W = m0.shape
     Hd, Wd = H // D, W // D
