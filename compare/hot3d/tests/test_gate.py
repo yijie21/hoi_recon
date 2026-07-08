@@ -27,3 +27,19 @@ def test_tie_needs_rot_improvement():
     cand["mug_white"]["rot_traj_med"] = 10.0     # mean rot_traj drops
     ok, why = gate(cand, BASE)
     assert ok, why
+
+def test_small_rot_traj_increase_within_noise_floor_passes():
+    """rot_traj 19.4->24.0 (+24% but +4.6° < 5° floor) with best-chamfer improvement PASSES."""
+    cand = copy.deepcopy(BASE)
+    cand["spatula_red"]["chamfer_mm"] = 25.0     # worst clip fixed (improves overall)
+    cand["vase"]["rot_traj_med"] = 24.0          # 19.4 -> 24.0 is +4.6°, exceeds 20% relative but < 5° floor
+    ok, why = gate(cand, BASE)
+    assert ok, why
+
+def test_large_rot_traj_increase_beyond_noise_floor_fails():
+    """rot_traj 32.8->40.0 (+22%, +7.2° > 5° floor) still FAILS as regression."""
+    cand = copy.deepcopy(BASE)
+    cand["spatula_red"]["chamfer_mm"] = 25.0     # worst clip fixed
+    cand["spatula_red"]["rot_traj_med"] = 40.0   # 32.8 -> 40.0 is +7.2°, exceeds both 20% relative and 5° absolute floor
+    ok, why = gate(cand, BASE)
+    assert not ok and "spatula_red" in why

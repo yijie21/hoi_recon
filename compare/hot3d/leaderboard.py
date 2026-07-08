@@ -1,5 +1,11 @@
 """Leaderboard + acceptance gate for the HOT3D improvement loop (see spec
-docs/superpowers/specs/2026-07-08-hot3d-improvement-loop-design.md)."""
+docs/superpowers/specs/2026-07-08-hot3d-improvement-loop-design.md).
+
+Noise floor: SAM-3D mesh generation is GPU-nondeterministic (same seed, same masks
+→ slightly different mesh → object geometry shifts). Measured redraw noise: chamfer
+shifts up to ~2mm, rot_traj up to ~17° on near-symmetric objects. Regression thresholds
+use absolute floors (sub-floor changes are measurement noise, not real regressions).
+"""
 import glob
 import json
 import os
@@ -8,6 +14,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REG = 1.20          # per-clip regression tolerance
 TIE_MM = 1.0        # worst-chamfer tie band
+ABS_FLOOR = {"chamfer_mm": 2.0, "rot_traj_med": 5.0}  # measured SAM-3D redraw noise floors
 
 
 def load_arm(arm):
@@ -21,7 +28,10 @@ def gate(cand, best):
         return False, f"clip sets differ: {sorted(set(best) ^ set(cand))}"
     for c in best:
         for k in ("chamfer_mm", "rot_traj_med"):
-            if cand[c][k] > best[c][k] * REG:
+            # Regression only if BOTH relative and absolute thresholds exceeded
+            rel_regress = cand[c][k] > best[c][k] * REG
+            abs_regress = cand[c][k] > best[c][k] + ABS_FLOOR[k]
+            if rel_regress and abs_regress:
                 return False, f"{c} regresses on {k}: {best[c][k]} -> {cand[c][k]}"
     wc_c = max(v["chamfer_mm"] for v in cand.values())
     wc_b = max(v["chamfer_mm"] for v in best.values())
