@@ -342,76 +342,55 @@ def segment_object(cfg, frames_dir, frame_paths, prompt_xy, out_dir,
     served instead of running SAM2 — matched by frame index, the same
     convention as the gt depth backend (RC_GT_DEPTH_DIR).
 
-    hand_aware_seg (cfg.backend, default False): hands are tracked as their
-    own SAM2 objects (positive box prompt at each valid hand box, on the
-    prompt frame) and subtracted from the object mask per frame, and the
-    object prompt additionally carries negative clicks at each hand-box
-    centre — SAM2 otherwise merges a held object with the arm (the HOT3D mug
-    failure). A mask-QA pass (hoi_recon.mask_qa) then re-prompts from a
-    cleaner anchor frame when the track is bad, using a border-aware point
-    (mask_qa.reprompt_point) so the re-prompt never lands on the forearm."""
+    hand_aware_seg (cfg.backend, default False): multi-hypothesis prompting
+    (_run_sam2_multi_hypothesis) — the benchmark prompt pixel can land ON the
+    occluding hand (the HOT3D mug clip: the tilted mug's GT centroid projects
+    onto the fingers), in which case no single-click strategy recovers. Hands
+    are tracked as their own SAM2 objects and subtracted; several candidate
+    object clicks (vetoed against the prompt-frame hand masks) are tracked as
+    independent SAM2 objects and the best track is selected by mask-QA score
+    (mask_qa.score_track)."""
     pattern = os.environ.get("RC_OBJECT_MASK_PATTERN")
     if pattern:
         return _external_object_masks(pattern, frame_paths, out_dir)
     hand_aware = bool(cfg.backend.get("hand_aware_seg", False))
     masks_dir = os.path.join(out_dir, "masks")
     os.makedirs(masks_dir, exist_ok=True)
-    mask_paths = _run_sam2_once(cfg, frames_dir, len(frame_paths), masks_dir,
-                                prompt_xy, 0, hand_boxes, hand_valid,
-                                hand_aware)
-    if hand_aware:
-        from ..mask_qa import qa_report, reprompt_point
-        from ..logging_utils import log
-        r = qa_report(mask_paths, hand_boxes, hand_valid)
-        log(f"mask QA: bad={r['bad']} hand_overlap={r['hand_overlap'].mean():.2f} "
-            f"best_frame={r['best_frame']}")
-        if r["bad"] and r["best_frame"] != 0:
-            m = np.load(mask_paths[r["best_frame"]])
-            # Border-aware: the plain centroid of a mug+forearm merged mask
-            # lands on the forearm (bigger blob) and pass 2 then tracks the
-            # arm exclusively (the mug-clip screen failure).
-            re_prompt, case = reprompt_point(m)
-            log(f"mask QA re-prompt @ frame {r['best_frame']} {re_prompt} "
-                f"[{case}]", "warn")
-            mask_paths = _run_sam2_once(cfg, frames_dir, len(frame_paths),
-                                        masks_dir, re_prompt,
-                                        r["best_frame"], hand_boxes,
-                                        hand_valid, hand_aware)
+    T = len(frame_paths)
+    if not hand_aware:
+        return masks_dir, _run_sam2_once(cfg, frames_dir, T, masks_dir,
+                                         prompt_xy, 0, hand_boxes, hand_valid,
+                                         False)
+    from ..mask_qa import qa_report
+    from ..logging_utils import log
+    mask_paths = _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir,
+                                            prompt_xy, hand_boxes, hand_valid)
+    r = qa_report(mask_paths, hand_boxes, hand_valid)
+    log(f"mask QA (chosen track): bad={r['bad']} "
+        f"hand_overlap={r['hand_overlap'].mean():.2f} "
+        f"border_frac={r['border_frac']:.2f}")
     return masks_dir, mask_paths
 
 
 def _run_sam2_once(cfg, frames_dir, T, masks_dir, prompt_xy, prompt_frame,
                    hand_boxes, hand_valid, hand_aware):
-    """One SAM2 video pass. Object = obj_id 1 (positive click + negative
-    clicks at each valid hand-box centre, so the object track never absorbs
-    the hand/arm); each hand = its own obj_id (2, 3) prompted by a box,
-    tracked jointly and subtracted. Propagates forward AND backward from
-    prompt_frame."""
+    """One SAM2 video pass. Object = obj_id 1 (positive click); each hand =
+    its own obj_id (2, 3) prompted by a box, tracked jointly and subtracted.
+    Propagates forward AND backward from prompt_frame."""
     import torch
     predictor = _load_sam2(cfg)
-
-    def _valid_hand_boxes():
-        if hand_boxes is None:
-            return
-        for h in range(hand_boxes.shape[1]):
-            b = hand_boxes[prompt_frame, h]
-            if hand_valid[prompt_frame, h] and np.isfinite(b).all():
-                yield h, b
-
     obj = {}
     with torch.inference_mode(), torch.autocast(_device(), dtype=torch.bfloat16):
         state = predictor.init_state(video_path=frames_dir)
-        pts, lbls = [prompt_xy], [1]
-        if hand_aware:
-            for _h, b in _valid_hand_boxes():
-                pts.append(((b[0] + b[2]) / 2, (b[1] + b[3]) / 2))
-                lbls.append(0)          # negative: this is the hand, not the object
         predictor.add_new_points_or_box(
             state, frame_idx=prompt_frame, obj_id=1,
-            points=np.array(pts, np.float32),
-            labels=np.array(lbls, np.int32))
-        if hand_aware:
-            for h, b in _valid_hand_boxes():
+            points=np.array([prompt_xy], np.float32),
+            labels=np.array([1], np.int32))
+        if hand_aware and hand_boxes is not None:
+            for h in range(hand_boxes.shape[1]):
+                b = hand_boxes[prompt_frame, h]
+                if not (hand_valid[prompt_frame, h] and np.isfinite(b).all()):
+                    continue
                 predictor.add_new_points_or_box(
                     state, frame_idx=prompt_frame, obj_id=2 + h,
                     box=b.astype(np.float32))
@@ -435,6 +414,152 @@ def _run_sam2_once(cfg, frames_dir, T, masks_dir, prompt_xy, prompt_frame,
         mp = os.path.join(masks_dir, f"{fidx:05d}.npy")
         np.save(mp, m)
         mask_paths[fidx] = mp
+    return mask_paths
+
+
+CAND_RADIUS_PX = 60.0    # offset of the 4 auxiliary candidate clicks
+
+
+def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
+                               hand_boxes, hand_valid, prompt_frame=0):
+    """Multi-hypothesis SAM2 prompting — robust to an object prompt that
+    lands ON the occluding hand (the HOT3D mug clip: the frozen benchmark
+    pixel projects onto the fingers, so a single click there tracks the
+    hand/arm and no prompt engineering around that one click recovers).
+
+    One SAM2 state:
+      1. Hands are prompted first (obj_id 2, 3; box prompts at prompt_frame)
+         and their prompt-frame masks read back from the
+         add_new_points_or_box return value ((frame_idx, obj_ids,
+         video_res_masks) — mask logits already at video resolution, per the
+         vendored sam2_video_predictor).
+      2. Up to 5 candidate clicks — the original plus 4 at CAND_RADIUS_PX
+         (up/down/left/right) — each vetoed if it falls inside a prompt-frame
+         hand mask or outside the image. An original click inside a hand mask
+         is logged prominently (the mug-clip failure signature).
+      3. Every surviving candidate is prompted as its OWN SAM2 object
+         (obj_id 10+k, positive click only); one joint forward(+backward)
+         propagation tracks hands and all candidates together.
+      4. Per candidate: hand masks are subtracted per frame, the track is
+         scored with mask_qa.score_track (tIoU vs hand overlap / area jump /
+         border touching), and the best-scoring track wins."""
+    import shutil
+    import torch
+    from ..mask_qa import qa_report, score_track
+    from ..logging_utils import log
+    predictor = _load_sam2(cfg)
+
+    hand_ids = []
+    with torch.inference_mode(), torch.autocast(_device(), dtype=torch.bfloat16):
+        state = predictor.init_state(video_path=frames_dir)
+        H, W = state["video_height"], state["video_width"]
+
+        # 1. hands first: their prompt-frame masks veto candidate clicks
+        hand_mask0 = np.zeros((H, W), bool)
+        ret = None
+        if hand_boxes is not None and hand_valid is not None:
+            for h in range(hand_boxes.shape[1]):
+                b = hand_boxes[prompt_frame, h]
+                if not (hand_valid[prompt_frame, h] and np.isfinite(b).all()):
+                    continue
+                ret = predictor.add_new_points_or_box(
+                    state, frame_idx=prompt_frame, obj_id=2 + h,
+                    box=b.astype(np.float32))
+                hand_ids.append(2 + h)
+        if ret is not None:
+            _f, ids, logits = ret
+            for k, o in enumerate(ids):
+                if int(o) in hand_ids:
+                    hand_mask0 |= (logits[k] > 0).squeeze().cpu().numpy().astype(bool)
+
+        # 2. candidate clicks (original + 4 offsets), hand/image-bounds veto
+        x0, y0 = float(prompt_xy[0]), float(prompt_xy[1])
+        R = CAND_RADIUS_PX
+        raw = [(x0, y0), (x0 + R, y0), (x0 - R, y0), (x0, y0 + R), (x0, y0 - R)]
+        cands = []
+        for j, (cx, cy) in enumerate(raw):
+            tag = "original" if j == 0 else f"offset{j}"
+            if not (0 <= cx < W and 0 <= cy < H):
+                log(f"seg candidate {tag} ({cx:.0f},{cy:.0f}): outside image, "
+                    "discarded")
+                continue
+            if hand_mask0[int(cy), int(cx)]:
+                if j == 0:
+                    log("OBJECT PROMPT LANDS ON A HAND — the benchmark click "
+                        f"({cx:.0f},{cy:.0f}) is inside the prompt-frame hand "
+                        "mask (mug-clip failure signature); relying on offset "
+                        "candidates", "warn")
+                else:
+                    log(f"seg candidate {tag} ({cx:.0f},{cy:.0f}): inside "
+                        "hand mask, discarded")
+                continue
+            cands.append((cx, cy))
+        if not cands:
+            log("all candidate clicks discarded — falling back to the "
+                "original prompt", "warn")
+            cands = [(x0, y0)]
+
+        for k, c in enumerate(cands):
+            predictor.add_new_points_or_box(
+                state, frame_idx=prompt_frame, obj_id=10 + k,
+                points=np.array([c], np.float32),
+                labels=np.array([1], np.int32))
+
+        # 3. one joint propagation; stream per-candidate hand-subtracted
+        # masks straight to disk (no T x H x W x K accumulation in memory)
+        cand_dirs = [os.path.join(masks_dir, f"cand{k}")
+                     for k in range(len(cands))]
+        for d in cand_dirs:
+            os.makedirs(d, exist_ok=True)
+        cand_paths = [[None] * T for _ in cands]
+
+        def _consume(it):
+            for fidx, ids, logits in it:
+                ms = {int(o): (logits[k] > 0).squeeze().cpu().numpy().astype(bool)
+                      for k, o in enumerate(ids)}
+                hand_union = None
+                for hid in hand_ids:
+                    hm = ms.get(hid)
+                    if hm is not None:
+                        hand_union = hm if hand_union is None else hand_union | hm
+                for k in range(len(cands)):
+                    m = ms.get(10 + k)
+                    if m is None:
+                        continue
+                    if hand_union is not None:
+                        m = m & ~hand_union
+                    mp = os.path.join(cand_dirs[k], f"{fidx:05d}.npy")
+                    np.save(mp, m)
+                    cand_paths[k][fidx] = mp
+
+        _consume(predictor.propagate_in_video(state, start_frame_idx=prompt_frame))
+        if prompt_frame > 0:
+            _consume(predictor.propagate_in_video(
+                state, start_frame_idx=prompt_frame, reverse=True))
+
+    # 4. score every candidate track, select the best
+    best_k, best_s = 0, -np.inf
+    for k, c in enumerate(cands):
+        r = qa_report(cand_paths[k], hand_boxes, hand_valid)
+        s = score_track(r["area"], r["tiou"], r["hand_overlap"],
+                        r["border_frac"])
+        log(f"seg candidate {k} @ ({c[0]:.0f},{c[1]:.0f}): score={s:.3f} "
+            f"tiou={float(np.mean(r['tiou'])) if len(r['tiou']) else 0.0:.2f} "
+            f"hand_overlap={r['hand_overlap'].mean():.2f} "
+            f"border={r['border_frac']:.2f} bad={r['bad']}")
+        if s > best_s:
+            best_k, best_s = k, s
+    log(f"seg candidate {best_k} selected (score={best_s:.3f})")
+
+    mask_paths = [None] * T
+    for fidx, cp in enumerate(cand_paths[best_k]):
+        if cp is None:
+            continue
+        mp = os.path.join(masks_dir, f"{fidx:05d}.npy")
+        os.replace(cp, mp)
+        mask_paths[fidx] = mp
+    for d in cand_dirs:                      # losers (and the emptied winner)
+        shutil.rmtree(d, ignore_errors=True)
     return mask_paths
 
 

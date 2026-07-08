@@ -1,6 +1,6 @@
 import numpy as np, os, sys, tempfile
 sys.path.insert(0, "/workspace/code/hoi_recon/render_and_compare")
-from hoi_recon.mask_qa import qa_report, reprompt_point
+from hoi_recon.mask_qa import qa_report, reprompt_point, score_track
 
 def _save(dirn, masks):
     ps = []
@@ -51,3 +51,23 @@ def test_reprompt_point_falls_back_to_largest():
     (x, y), case = reprompt_point(m)
     assert case == "border-fallback"
     assert x < 10 and y < 30  # centroid of the larger border blob
+
+def test_score_track_prefers_stable_low_overlap():
+    T = 12
+    stable = score_track([400.0] * T, [0.9] * (T - 1), [0.05] * T, 0.0)
+    # (i) dying track: mask vanishes after 4 frames, tIoU collapses
+    dying = score_track([400.0] * 4 + [0.0] * (T - 4),
+                        [0.9] * 3 + [0.0] * (T - 4), [0.05] * T, 0.0)
+    # (ii) border-hugging arm track: temporally stable but high hand overlap
+    # and touching the frame border in every frame
+    arm = score_track([2000.0] * T, [0.92] * (T - 1), [0.6] * T, 1.0)
+    assert stable > dying
+    assert stable > arm
+
+def test_score_track_penalizes_area_jump():
+    T = 10
+    stable = score_track([400.0] * T, [0.9] * (T - 1), [0.05] * T, 0.0)
+    # leak onset: area explodes mid-track (tIoU dips only at the jump)
+    leaky = score_track([400.0] * 5 + [3000.0] * 5,
+                        [0.9] * 4 + [0.12] + [0.9] * 4, [0.05] * T, 0.0)
+    assert stable > leaky
