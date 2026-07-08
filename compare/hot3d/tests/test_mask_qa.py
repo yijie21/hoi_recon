@@ -1,6 +1,7 @@
 import numpy as np, os, sys, tempfile
 sys.path.insert(0, "/workspace/code/hoi_recon/render_and_compare")
-from hoi_recon.mask_qa import qa_report, reprompt_point, score_track
+from hoi_recon.mask_qa import (qa_report, reprompt_point, score_track,
+                               select_track)
 
 def _save(dirn, masks):
     ps = []
@@ -71,3 +72,28 @@ def test_score_track_penalizes_area_jump():
     leaky = score_track([400.0] * 5 + [3000.0] * 5,
                         [0.9] * 4 + [0.12] + [0.9] * 4, [0.05] * T, 0.0)
     assert stable > leaky
+
+def test_select_track_four_bench_cases():
+    # The four observed HOT3D bench cases (v3/v3.1/v3.1b screens):
+    # masher — original not bad, offset only marginally better (delta 0.134
+    # < 0.15): the original-click preference fires and keeps the original.
+    idx, fired = select_track([0.145, 0.279], [False, False], original_idx=0)
+    assert idx == 0 and fired
+    # mug — original click landed on the hand: its track is bad, the offset
+    # candidate wins and the tiebreaker must NOT fire.
+    idx, fired = select_track([0.10, 0.279], [True, False], original_idx=0)
+    assert idx == 1 and not fired
+    # spatula — offset clearly better (delta 0.826 >= margin): offset wins.
+    idx, fired = select_track([0.10, 0.926], [False, False], original_idx=0)
+    assert idx == 1 and not fired
+    # cube (puzzle_toy, both hands) — every track bad: no selection, caller
+    # falls back to the vanilla single track.
+    idx, fired = select_track([0.05, -0.3, -0.5], [True, True, True],
+                              original_idx=0)
+    assert idx is None and not fired
+
+def test_select_track_original_vetoed():
+    # Original click discarded by the hand-mask veto (not among candidates):
+    # plain argmax, tiebreaker cannot fire.
+    idx, fired = select_track([0.20, 0.25], [False, False], original_idx=None)
+    assert idx == 1 and not fired

@@ -459,7 +459,7 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
     vanilla single track without hand subtraction."""
     import shutil
     import torch
-    from ..mask_qa import qa_report, score_track
+    from ..mask_qa import SELECT_MARGIN, qa_report, score_track, select_track
     from ..logging_utils import log
     predictor = _load_sam2(cfg)
 
@@ -491,6 +491,7 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
         R = CAND_RADIUS_PX
         raw = [(x0, y0), (x0 + R, y0), (x0 - R, y0), (x0, y0 + R), (x0, y0 - R)]
         cands = []
+        original_idx = None            # index of the original click in cands
         for j, (cx, cy) in enumerate(raw):
             tag = "original" if j == 0 else f"offset{j}"
             if not (0 <= cx < W and 0 <= cy < H):
@@ -507,6 +508,8 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
                     log(f"seg candidate {tag} ({cx:.0f},{cy:.0f}): inside "
                         "hand mask, discarded")
                 continue
+            if j == 0:
+                original_idx = len(cands)
             cands.append((cx, cy))
         if not cands:
             log("no candidate click survives the hand-mask veto", "warn")
@@ -550,7 +553,8 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
             _consume(predictor.propagate_in_video(
                 state, start_frame_idx=prompt_frame, reverse=True))
 
-    # 4. score every candidate track, select the best; all bad -> fall back
+    # 4. score every candidate track, select (original-click preference
+    # within SELECT_MARGIN); all bad -> fall back to vanilla single track
     scores, bads = [], []
     for k, c in enumerate(cands):
         r = qa_report(cand_paths[k], hand_boxes, hand_valid)
@@ -562,13 +566,17 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
             f"border={r['border_frac']:.2f} bad={r['bad']}")
         scores.append(s)
         bads.append(bool(r["bad"]))
-    if all(bads):
+    best_k, tiebreak = select_track(scores, bads, original_idx=original_idx)
+    if best_k is None:
         for d in cand_dirs:
             shutil.rmtree(d, ignore_errors=True)
         log(f"all {len(cands)} candidate tracks bad=True — no usable "
             "hand-subtracted track", "warn")
         return None
-    best_k = int(np.argmax(scores))
+    if tiebreak:
+        log(f"original-click preference: candidate {best_k} "
+            f"(score={scores[best_k]:.3f}) kept over top scorer "
+            f"(score={max(scores):.3f}, margin<{SELECT_MARGIN})")
     log(f"seg candidate {best_k} selected (score={scores[best_k]:.3f})")
 
     mask_paths = [None] * T

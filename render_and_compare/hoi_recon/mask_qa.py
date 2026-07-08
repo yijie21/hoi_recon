@@ -81,6 +81,34 @@ def score_track(area, tiou, hand_overlap, border_frac):
     return s
 
 
+SELECT_MARGIN = 0.15   # original-click preference band (see select_track)
+
+
+def select_track(scores, bads, original_idx=0, margin=SELECT_MARGIN):
+    """Pick a candidate track -> (index or None, tiebreak_fired).
+
+    Highest score wins, with one exception: the ORIGINAL-click candidate is
+    preferred when it exists among the candidates, its track is not bad, and
+    the top score beats it by less than `margin`. Offset candidates exist as
+    a rescue for a poisoned original click; on a healthy clip, switching to a
+    marginally-higher-scoring offset track regressed the potato_masher bench
+    (chamfer 18.9 -> 23.0 mm) — the original click is the operator/benchmark
+    ground truth and deserves the benefit of the doubt.
+
+    Returns (None, False) when every track is bad: no usable hand-subtracted
+    track (object likely enclosed by hands, e.g. the two-handed puzzle_toy
+    cube) — the caller falls back to the vanilla single track. `original_idx`
+    is None when the original click did not survive the hand-mask veto."""
+    if all(bads):
+        return None, False
+    best = int(np.argmax(scores))
+    if (original_idx is not None and best != original_idx
+            and not bads[original_idx]
+            and scores[best] - scores[original_idx] < margin):
+        return original_idx, True
+    return best, False
+
+
 def qa_report(mask_paths, hand_boxes, hand_valid):
     T = len(mask_paths)
     area = np.zeros(T)
