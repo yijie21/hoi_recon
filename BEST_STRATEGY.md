@@ -218,6 +218,39 @@ BOP-eval canonical; the display object_models (mm) are NOT all canonically
 consistent (uid 31 mouse is axis-swapped + offset ~2 cm). Poses/cameras are
 quaternion-wxyz world transforms.
 
+### Pipeline run on HOT3D (2026-07-08): the strategy generalizes, and so does its failure mode
+
+The full icpj recipe ran end-to-end on HOT3D clip-002500 (vase, 150 frames)
+via a new adapter, `compare/hot3d/make_rc_input.py`: Aria fisheye rectified
+onto a virtual upright 90°-FOV pinhole camera (1024², upright by rotating the
+camera about its optical axis — no post-rotation), and GT depth ray-cast
+(open3d) from ALL posed eval GLBs + UmeTrack hand meshes into that camera as
+16-bit mm PNGs (`--depth gt` / RC_GT_DEPTH_DIR convention; HOT3D has no depth
+sensor). SAM2 prompt = projected GT centroid at frame 0. Run:
+`runs/hot3d_vase_icpj`; side-by-side vs GT:
+`compare/hot3d/rc_vs_gt_hot3d_vase.mp4`; metrics
+`compare/hot3d/gt_pose_eval_hot3d.py` → `gt_pose_hot3d.json`.
+
+Joint refine converged to depth 3.9 mm / sil 0.60 px (tighter than kettle's
+5.2 mm / 2.4 px — cleaner rendered depth, mocap GT). Against mocap GT:
+chamfer 17.5 mm med, centroid 2.48 cm med, rot_traj 19.4° med — all better
+than kettle_N15 icpj3 (20.8 mm / 5.29 cm), and this time with NO annotation
+noise floor to hide behind. Phase breakdown is the real finding:
+
+| phase | rot_traj | chamfer | note |
+|---|---|---|---|
+| f0–95 vase static on table | 14–21° | 17–22 mm | placement visually on-object throughout |
+| f100–120 picked up, mouth-on views | 54–74° | **6–8 mm** | symmetry cheat: chamfer at its BEST while rotation is at its worst |
+| f140–150 fast in-hand rotation | 122° | 21 mm | attitude visibly wrong in overlay; centroid drifts to 6 cm |
+
+Same two known limits reproduced on a second dataset: (a) constant anchor
+attitude error (abs rot 77° via shape-G) — the anchor-frame attitude search
+stays the next build; (b) in-hand rotation tracking fails on near-revolution
+shapes exactly when depth ICP has no azimuth signal. Per-axis scale hit its
+usefulness limit too: it shrank SAM-3D's over-wide x-axis 22% ([0.78, 0.97,
+1.06]). HOT3D is adopted as the primary eval bed going forward — mocap GT
+makes sub-cm differences decidable.
+
 ## Blocked / caveats
 
 - The raw HOI4D tree (`/workspace/hoi4d`: 12 clips, GT depth, masks) is
