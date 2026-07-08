@@ -20,17 +20,19 @@ import sys
 
 import cv2
 import numpy as np
-import torch
 import trimesh
 from hand_tracking_toolkit import camera as htt_camera
 from hand_tracking_toolkit import dataset as htt_dataset
-from hand_tracking_toolkit.hand_models.mano_hand_model import (
-    MANOHandModel, forward_kinematics)
+from hand_tracking_toolkit.hand_models.umetrack_hand_model import (
+    forward_kinematics as umetrack_fk)
 from scipy.spatial.transform import Rotation
 
-# MANO model files: chumpy-free pkls (converted in-session with the forehoi
-# env; see BEST_STRATEGY notes). Hands render skin-toned from GT MANO poses.
-MANO_DIR = "/workspace/datasets/hot3d/mano"
+# Hands are rendered from the UmeTrack GT (toolkit-native, per-clip shape in
+# __hand_shapes.json__["umetrack"]) rather than MANO: HOT3D's MANO thetas are
+# PCA coefficients in the OFFICIAL MPI left/right bases, and the only
+# MANO_LEFT.pkl on this box (HaWoR's) is a fabricated right-hand model with a
+# mirrored template — decoding left thetas with it reverses the palm
+# (user-spotted). UmeTrack needs no licensed model files.
 HAND_COLOR = (140, 170, 240)                       # BGR skin tone
 N_PER_HAND = 20000
 
@@ -71,17 +73,17 @@ def main():
     print(f"{name}: {len(frames)} frames, objects:",
           {u: names[u]["name"] for u in objs})
 
-    mano = MANOHandModel(MANO_DIR)
     shp = json.load(open(f"{clip}/__hand_shapes.json__"))
-    betas = torch.tensor(shp["mano"], dtype=torch.float32)
+    um_shape = htt_dataset.from_umetrack_hand_model_json(shp["umetrack"])
 
     def hand_meshes(hands_js):
-        """GT MANO verts+faces per posed hand (world frame)."""
+        """GT UmeTrack verts+faces per posed hand (world frame)."""
         out = []
         for side, pc in htt_dataset.decode_hand_pose(hands_js).items():
-            if pc.mano is None:
+            if pc.umetrack is None:
                 continue
-            _, verts, faces = forward_kinematics(pc.mano, betas, mano)
+            _, verts, faces = umetrack_fk(pc.umetrack, um_shape,
+                                          requires_mesh=True)
             out.append((verts.detach().numpy().astype(np.float64),
                         faces.detach().numpy().astype(np.int64)))
         return out
@@ -147,7 +149,7 @@ def main():
             sm[cov] = (0.45 * sm[cov] + 0.55 * lay[cov]).astype(np.uint8)
 
         sm = cv2.rotate(sm, cv2.ROTATE_90_CLOCKWISE)
-        label = f"HOT3D {name}  GT objects + MANO hands (mocap)"
+        label = f"HOT3D {name}  GT objects + UmeTrack hands (mocap)"
         cv2.putText(sm, label, (10, 26), FONT, 0.6, (0, 0, 0), 4, cv2.LINE_AA)
         cv2.putText(sm, label, (10, 26), FONT, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(sm, f"frame {fi}", (10, Wd - 12), FONT, 0.55,

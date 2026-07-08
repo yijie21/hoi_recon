@@ -206,9 +206,13 @@ drop-in matches for the current harness (real sensor depth, static cams).
 **Verified in-session (2026-07-08)**: HOT3D BOP-clips release downloaded from
 HF `bop-benchmark/hot3d` to `/workspace/datasets/hot3d` (2 Aria clips + all
 33 GLBs); GT overlays are pixel-tight even for in-hand moving objects, and the GT
-MANO hands render finger-perfect (MANO pkls made chumpy-free at
-/workspace/datasets/hot3d/mano) — `compare/hot3d/gt_overlay_hot3d.py`,
-videos `gt_overlay_hot3d_clip-*.mp4`.
+hands render finger-perfect via the toolkit-native UmeTrack model —
+`compare/hot3d/gt_overlay_hot3d.py`, videos `gt_overlay_hot3d_clip-*.mp4`.
+WARNING for any MANO use on this box: the only MANO_LEFT.pkl here (HaWoR's,
+copied to /workspace/datasets/hot3d/mano) is FABRICATED — a right-hand model
+with mirrored template but the right hand's PCA basis/means — decoding
+official left-hand thetas with it reverses the palm. Get the official MPI
+MANO_LEFT.pkl before trusting any left-hand MANO decode.
 GLB units are mm; poses/cameras are quaternion-wxyz world transforms.
 
 ## Blocked / caveats
