@@ -213,7 +213,10 @@ copied to /workspace/datasets/hot3d/mano) is FABRICATED — a right-hand model
 with mirrored template but the right hand's PCA basis/means — decoding
 official left-hand thetas with it reverses the palm. Get the official MPI
 MANO_LEFT.pkl before trusting any left-hand MANO decode.
-GLB units are mm; poses/cameras are quaternion-wxyz world transforms.
+Pose the object_models_eval GLBs (meters) — objects.json poses are in the
+BOP-eval canonical; the display object_models (mm) are NOT all canonically
+consistent (uid 31 mouse is axis-swapped + offset ~2 cm). Poses/cameras are
+quaternion-wxyz world transforms.
 
 ## Blocked / caveats
 

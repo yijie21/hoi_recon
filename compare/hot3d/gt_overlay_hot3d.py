@@ -53,11 +53,16 @@ def T_from(d):
 
 
 def load_object(uid):
-    g = trimesh.load(f"{DS}/object_models/obj_{int(uid):06d}.glb")
+    # Use the EVAL models (meters): objects.json poses are defined in the
+    # BOP-eval canonical. The display models (object_models/, mm) are NOT
+    # all in the same canonical - uid 31 (mouse) is axis-swapped and offset
+    # 15-21 mm vs eval, which rendered it visibly misaligned (user-spotted);
+    # the keyboard's two versions happen to agree, masking the issue.
+    g = trimesh.load(f"{DS}/object_models_eval/obj_{int(uid):06d}.glb")
     m = (trimesh.util.concatenate(list(g.geometry.values()))
          if isinstance(g, trimesh.Scene) else g)
     P, fidx = trimesh.sample.sample_surface(m, N_PER_OBJ, seed=0)
-    return np.asarray(P) / 1000.0, np.asarray(m.face_normals)[fidx]
+    return np.asarray(P), np.asarray(m.face_normals)[fidx]
 
 
 def main():
