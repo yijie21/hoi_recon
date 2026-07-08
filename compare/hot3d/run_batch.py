@@ -10,7 +10,6 @@ import argparse
 import json
 import os
 import subprocess
-import sys
 
 DS = "/workspace/datasets/hot3d"
 RC = "/workspace/code/hoi_recon/render_and_compare"
@@ -36,6 +35,7 @@ def main():
         num = clip.split("-")[1]
         inp = f"{DS}/rc_input_{num}_{cat}"
         run = f"{RC}/runs/hot3d_{cat}_{num}_{a.arm}"
+        lp = f"{run}.log"
         try:
             if not os.path.exists(f"{inp}/meta.json"):
                 sh([PY, f"{HERE}/make_rc_input.py", f"{DS}/clips/{clip}", uid, inp])
@@ -49,7 +49,6 @@ def main():
                 env = dict(os.environ,
                            RC_GT_DEPTH_DIR=f"{inp}/depth_png",
                            RC_GT_INTRINSICS=f"{inp}/intrinsics.npy")
-                lp = f"{run}.log"
                 with open(lp, "w") as lf:
                     subprocess.run([PY, "-m", "hoi_recon.cli", "--video",
                         f"{inp}/rgb.mp4", "--out", run, "--real", "--config",
@@ -57,7 +56,6 @@ def main():
                         f"{px:.1f}", f"{py_:.1f}"], check=True, cwd=RC,
                         env=env, stdout=lf, stderr=subprocess.STDOUT)
             log_txt = ""
-            lp = f"{run}.log"
             if os.path.exists(lp):
                 log_txt = open(lp, errors="ignore").read()
             if "falling back to depth-lift" in log_txt:
@@ -74,7 +72,7 @@ def main():
                             "rot_traj_p90": round(v["rot_traj_deg_p90"], 1),
                             "rot_abs_med": round(v["rot_deg_med"], 1)})
             print("RESULT", json.dumps(summary[-1]), flush=True)
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, RuntimeError) as e:
             print(f"FAIL {clip} {cat}: {e}", flush=True)
             summary.append({"clip": clip, "cat": cat, "error": str(e)})
     json.dump(summary, open(f"{HERE}/batch_summary_{a.arm}.json", "w"), indent=1)
