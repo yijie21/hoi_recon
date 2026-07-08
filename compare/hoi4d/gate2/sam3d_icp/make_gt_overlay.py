@@ -19,7 +19,8 @@ N = 200000
 
 cad = trimesh.load(f"{DS}/HOI4D_CAD_Model_for_release/rigid/Kettle/015.obj", force="mesh")
 Pc, fidx = trimesh.sample.sample_surface(cad, N, seed=0)
-Pc = np.asarray(Pc); Nc = np.asarray(cad.face_normals)[fidx]
+Pc = np.asarray(Pc) - cad.bounds.mean(0)   # HOI4D poses the bbox CENTER
+Nc = np.asarray(cad.face_normals)[fidx]
 
 z8 = np.load(f"{RC}/kettle_gt_icpj3/stage8_eval/pseudo_gt.npz")
 est = trimesh.Trimesh(z8["obj_verts"], z8["obj_faces"], process=False)

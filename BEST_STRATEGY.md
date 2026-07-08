@@ -128,8 +128,10 @@ removing one constant offset the per-frame tracking error is only 13–19° —
 icpj3 best at 13.3°). The anchor-frame attitude initialization is the
 dominant unfixed error; depth-metric differences below ~1 cm are beneath the
 GT annotation's own noise floor (6–16 mm) and must not be used to rank arms.
-Chamfer vs GT: icp2 28.4 / icp4 29.2 / icp5 33.4 / icpj3 29.4 mm; centroid
-6.6–7.5 cm. Full table + caveats in `sam3d_icp/RESULTS.md`.
+Chamfer vs GT (after the CAD bbox-centering convention fix — HOI4D poses
+the box center): icp2 21.3 / icp4 23.5 / icp5 23.9 / **icpj3 20.8 mm**;
+centroid 5.3–7.0 cm, icpj3 best on every GT metric. Full table + caveats in
+`sam3d_icp/RESULTS.md`.
 
 **icpj3 (config `real_forehoi_icp_joint.yaml`) is the current default arm**:
 best visible-surface accuracy, best (smallest) depth bias, best silhouette

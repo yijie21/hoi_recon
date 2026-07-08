@@ -73,7 +73,12 @@ def align_canonicals(src, dst):
 def main():
     names = sys.argv[1:] or ["icp2", "icp4", "icp5", "icpj3"]
     cad = trimesh.load(CAD, force="mesh")
-    Vc = np.asarray(trimesh.sample.sample_surface(cad, N, seed=SEED)[0])
+    # HOI4D poses the annotation BOX CENTER: the CAD bbox must be centered
+    # at the origin first (Kettle/015 bbox center sits at y=-2.32 cm; using
+    # the raw CAD shifts every GT surface by R @ that offset - measured as a
+    # +2.8 cm object-frame residual before this fix).
+    Vc = np.asarray(trimesh.sample.sample_surface(cad, N, seed=SEED)[0]) \
+        - cad.bounds.mean(0)
     Rg, tg = gt_poses()
 
     res = {}

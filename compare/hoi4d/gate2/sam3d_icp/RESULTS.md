@@ -271,10 +271,20 @@ made in the depth-camera frame; a small constant depth->RGB offset exists).
 
 | arm | chamfer med/p90 | centroid | rot (abs, shape-G) | rot_traj (const removed) |
 |---|---|---|---|---|
-| icp2 | 28.4/32.1 mm | 7.45 cm | 55.0/62.5° | 17.4/36.1° |
-| icp4 | 29.2/33.4 mm | 6.72 cm | 56.0/64.0° | 19.1/44.2° |
-| icp5 | 33.4/35.6 mm | 7.35 cm | 81.1/95.3° | 13.7/49.5° |
-| icpj3 | 29.4/31.3 mm | 6.56 cm | 81.6/97.4° | **13.3**/45.1° |
+| icp2 | 21.3/24.7 mm | 7.00 cm | 55.0/62.5° | 17.4/36.1° |
+| icp4 | 23.5/24.3 mm | 6.46 cm | 56.0/64.0° | 19.1/44.2° |
+| icp5 | 23.9/26.1 mm | 6.00 cm | 81.1/95.3° | 13.7/49.5° |
+| icpj3 | **20.8/22.6 mm** | **5.29 cm** | 81.6/97.4° | **13.3**/45.1° |
+
+CONVENTION FIX (user-spotted via the overlay video): HOI4D poses the
+annotation 3D-BOX CENTER, and Kettle/015.obj's bbox center sits at
+y=-2.32 cm — the CAD must be bbox-centered before posing. The offset was
+diagnosed as object-frame-constant (+2.79 cm along object y, rotating with
+the kettle) rather than camera-frame-constant, which ruled out a depth->RGB
+extrinsic and pointed at the canonical origin. After the fix: mean projected
+offset 28->6 px (zero-mean; per-frame annotation scatter std ~19 px ≈
+±1.5 cm remains), GT-vs-cloud floor 6.4 mm median, chamfer dropped 6-8 mm
+for every arm, rotations unchanged. Table above is post-fix.
 
 Three conclusions:
 1. **Every arm carries a large CONSTANT attitude error** (55-81° absolute
