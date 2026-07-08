@@ -200,9 +200,14 @@ depth↔RGB wobble — measured in `sam3d_icp/RESULTS.md`).
 | Aria Digital Twin (2023) | ~ rendered from twin | ✓ | ✓ | limited (no MANO) | ≫ |
 
 Notes: HOT3D is egocentric with headset motion (camera:identity does not
-hold — use its mocap camera trajectories); Aria RGB is fisheye (needs
-projectaria-tools calibration, not pinhole K). DexYCB/HO-Cap are the drop-in
-matches for the current harness (real sensor depth, static cams).
+hold — use its mocap camera trajectories); Aria RGB is fisheye624 (use
+hand_tracking_toolkit's camera model, not pinhole K). DexYCB/HO-Cap are the
+drop-in matches for the current harness (real sensor depth, static cams).
+**Verified in-session (2026-07-08)**: HOT3D BOP-clips release downloaded from
+HF `bop-benchmark/hot3d` to `/workspace/datasets/hot3d` (2 Aria clips + all
+33 GLBs); GT overlays are pixel-tight even for in-hand moving objects —
+`compare/hot3d/gt_overlay_hot3d.py`, videos `gt_overlay_hot3d_clip-*.mp4`.
+GLB units are mm; poses/cameras are quaternion-wxyz world transforms.
 
 ## Blocked / caveats
 
