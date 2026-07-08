@@ -121,6 +121,16 @@ export RC_GT_DEPTH_DIR=<clip>/depth RC_GT_INTRINSICS=<clip>/intrin.npy   # or vg
 | icp5 | rot locked to silhouette tracker | 10.1/10.8 mm | 1.18 cm | −1.17 | 0.75 cm | 0.59 | 1.67× |
 | **icpj3** | **joint depth+silhouette, per-axis scale** | 11.3/12.1 mm | **0.67 cm** | **−0.42** | 0.66 cm | **0.69** | **1.36×** |
 
+**GT-pose verdict (2026-07-08, HOI4D annotations + CAD now on disk at
+`/workspace/datasets/hoi4d`, evaluator `sam3d_icp/gt_pose_eval.py`)**: all
+arms carry a large CONSTANT attitude error (abs rotation 55–81°; after
+removing one constant offset the per-frame tracking error is only 13–19° —
+icpj3 best at 13.3°). The anchor-frame attitude initialization is the
+dominant unfixed error; depth-metric differences below ~1 cm are beneath the
+GT annotation's own noise floor (6–16 mm) and must not be used to rank arms.
+Chamfer vs GT: icp2 28.4 / icp4 29.2 / icp5 33.4 / icpj3 29.4 mm; centroid
+6.6–7.5 cm. Full table + caveats in `sam3d_icp/RESULTS.md`.
+
 **icpj3 (config `real_forehoi_icp_joint.yaml`) is the current default arm**:
 best visible-surface accuracy, best (smallest) depth bias, best silhouette
 IoU and footprint, orientation kept from the image-based track. Read the two
@@ -157,13 +167,19 @@ w_rot_prior 10, w_temp 2.5).
 
 ## Next build
 
-The registration side is now jointly constrained. The remaining levers, in
-expected-value order: (1) hand side — HaWoR/HaMeR anchors (hand-depth
-closure was only 0.16 in the matrix); (2) photometric refinement on top of
-the joint track (b5 slice 2 —
-`idea-loop-reports/2026-07-03-4dgs-jitter-free-hoi/branches/
-b5-gs-universal-refiner.md`); (3) multi-clip validation of icpj3 once
-`/workspace/hoi4d` is restored — every number above is kettle_N15.
+**Anchor-frame attitude search** — the GT eval says per-frame tracking is
+already decent (13° med) but the whole trajectory is rotated wrongly as a
+block by the stage-3 anchor init that `rotation: init` and the joint prior
+faithfully preserve. Fix at the source: N rotation hypotheses at the anchor
+frame (icosahedral × azimuth grid, or 4-azimuth minimum), each scored by the
+held-out photometric term (`sam3d_icp/photometric_check.py` machinery) plus
+depth+silhouette, winner initializes the pipeline. After that, in
+expected-value order: (2) hand side — HaWoR/HaMeR anchors (hand-depth
+closure was only 0.16 in the matrix); (3) photometric refinement on top of
+the joint track (b5 slice 2); (4) multi-clip validation — the RGB release
+and annotations for ALL clips are now in `/workspace/datasets/hoi4d`
+(depth-folder download still pending a downloader fix; kettle_N15 GT depth
+lives in the archived runs).
 
 ## Blocked / caveats
 
