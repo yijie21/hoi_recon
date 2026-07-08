@@ -101,7 +101,8 @@ def main():
               f"  rot {r['rot_deg_med']:.1f} deg"
               f"  rot_traj {r['rot_traj_deg_med']:.1f}/{r['rot_traj_deg_p90']:.1f} deg"
               f"  (canon ICP {r['canonical_icp_mm']:.1f} mm)")
-    with open(os.path.join(OUT, "gt_pose_hot3d.json"), "w") as fp:
+    tag = "_".join(os.path.basename(r) for r in runs)
+    with open(os.path.join(OUT, f"gt_pose_hot3d_{tag}.json"), "w") as fp:
         json.dump(res, fp, indent=1)
 
 

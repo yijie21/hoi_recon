@@ -262,6 +262,33 @@ usefulness limit too: it shrank SAM-3D's over-wide x-axis 22% ([0.78, 0.97,
 1.06]). HOT3D is adopted as the primary eval bed going forward — mocap GT
 makes sub-cm differences decidable.
 
+### 6-clip HOT3D batch (2026-07-08): failure taxonomy
+
+Selection: HIT names the interaction object per sequence; each clip's own
+mocap GT confirms in-clip motion + FOV (probe of 18 train-Aria clips →
+`compare/hot3d/probe_clips.py`, batch driver `run_batch.py`, per-clip
+side-by-sides `rc_vs_gt_<cat>_<clip>.mp4`, aggregate `batch_summary.json`).
+Medians vs mocap GT (`gt_pose_hot3d_*.json`):
+
+| clip (target) | chamfer | centroid | rot_traj | rot_abs | verdict |
+|---|---|---|---|---|---|
+| vase 002500 | 17.5 mm | 2.5 cm | 19.4° | 77° | good track; azimuth cheat in-hand |
+| potato_masher 002349 | 18.9 mm | 5.7 cm | 24.1° | **37°** | best attitude — asymmetric shape pins rotation |
+| bottle_bbq 002034 | 19.9 mm | 3.7 cm | 39.3° | 91° | revolution shape → azimuth unobservable; z-scale hit 1.4 clamp |
+| puzzle_toy 001964 | 18.6 mm | 3.4 cm | 82.7° | 154° | cube = 24-fold geometric symmetry: depth+sil has ZERO azimuth signal (only 37/150 frames registered) |
+| mug_white 001970 | 60.7 mm | 15.4 cm | 18.0° | 169° | SAM2 merged mug+FOREARM during propagation → SAM-3D generated a 25 cm mug-with-arm blob (caught visually) |
+| spatula_red 001990 | 158.8 mm | 13.9 cm | 32.8° | 46° | SAM2 anchor mask leaked into table/plate → 80 cm mesh; thin-object segmentation failure |
+
+Taxonomy: (1) registration itself is consistently ~18-20 mm chamfer whenever
+stage 1 gives a clean mask — across 4 categories; (2) rotation quality is a
+direct function of shape asymmetry (masher 37° ≫ bottle/cube), confirming
+azimuth must come from PHOTOMETRIC evidence, not geometry; (3) the two
+catastrophic failures are both stage-1 SEGMENTATION on hand-held/thin
+objects (mug+arm merge, spatula→table leak), upstream of everything this
+strategy tunes. Priority update: hand-aware segmentation (subtract hand
+masks / negative clicks from SAM2) is now tied with the anchor attitude
+search; both are cheaper than any further registration work.
+
 ## Blocked / caveats
 
 - The raw HOI4D tree (`/workspace/hoi4d`: 12 clips, GT depth, masks) is
