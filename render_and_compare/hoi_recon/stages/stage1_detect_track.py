@@ -73,7 +73,9 @@ def run(ctx) -> Bundle:
     log(f"SAM2 object prompt @ ({prompt[0]:.0f},{prompt[1]:.0f})"
         + ("  [override]" if cfg.get("object_prompt") else "  [hand-box heuristic]"))
     masks_dir, mask_paths = segment_object(cfg, frames_dir, frame_paths, prompt,
-                                           ctx.stage_dir(NAME))
+                                           ctx.stage_dir(NAME),
+                                           hand_boxes=hand_boxes,
+                                           hand_valid=hand_valid)
 
     object_box = np.full((T, 4), np.nan)
     for i, mp in enumerate(mask_paths):

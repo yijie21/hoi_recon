@@ -333,35 +333,93 @@ def _object_prompt(boxes, valid, image_size, override=None):
     return W / 2.0, H / 2.0
 
 
-def segment_object(cfg, frames_dir, frame_paths, prompt_xy, out_dir):
-    """SAM 2 video segmentation from a single point prompt on frame 0.
-    Returns (masks_dir, mask_paths).
+def segment_object(cfg, frames_dir, frame_paths, prompt_xy, out_dir,
+                   hand_boxes=None, hand_valid=None):
+    """SAM 2 video segmentation from a point prompt. Returns (masks_dir, mask_paths).
 
     If RC_OBJECT_MASK_PATTERN is set (a path template with {idx}, e.g.
     '.../frame_{idx:06d}_masks/object.png'), pre-computed per-frame masks are
     served instead of running SAM2 — matched by frame index, the same
-    convention as the gt depth backend (RC_GT_DEPTH_DIR)."""
+    convention as the gt depth backend (RC_GT_DEPTH_DIR).
+
+    hand_aware_seg (cfg.backend, default False): hands are tracked as their
+    own SAM2 objects (positive box prompt at each valid hand box, on the
+    prompt frame) and subtracted from the object mask per frame — SAM2
+    otherwise merges a held object with the arm (the HOT3D mug failure). A
+    mask-QA pass (hoi_recon.mask_qa) then re-prompts from a cleaner anchor
+    frame when the track is bad."""
     pattern = os.environ.get("RC_OBJECT_MASK_PATTERN")
     if pattern:
         return _external_object_masks(pattern, frame_paths, out_dir)
-    import torch
-    predictor = _load_sam2(cfg)
+    hand_aware = bool(cfg.backend.get("hand_aware_seg", False))
     masks_dir = os.path.join(out_dir, "masks")
     os.makedirs(masks_dir, exist_ok=True)
-    T = len(frame_paths)
-    mask_paths = [None] * T
+    mask_paths = _run_sam2_once(cfg, frames_dir, len(frame_paths), masks_dir,
+                                prompt_xy, 0, hand_boxes, hand_valid,
+                                hand_aware)
+    if hand_aware:
+        from ..mask_qa import qa_report
+        from ..logging_utils import log
+        r = qa_report(mask_paths, hand_boxes, hand_valid)
+        log(f"mask QA: bad={r['bad']} hand_overlap={r['hand_overlap'].mean():.2f} "
+            f"best_frame={r['best_frame']}")
+        if r["bad"] and r["best_frame"] != 0:
+            m = np.load(mask_paths[r["best_frame"]])
+            ys, xs = np.where(m)
+            re_prompt = (float(xs.mean()), float(ys.mean()))
+            log(f"mask QA re-prompt @ frame {r['best_frame']} {re_prompt}", "warn")
+            mask_paths = _run_sam2_once(cfg, frames_dir, len(frame_paths),
+                                        masks_dir, re_prompt,
+                                        r["best_frame"], hand_boxes,
+                                        hand_valid, hand_aware)
+    return masks_dir, mask_paths
+
+
+def _run_sam2_once(cfg, frames_dir, T, masks_dir, prompt_xy, prompt_frame,
+                   hand_boxes, hand_valid, hand_aware):
+    """One SAM2 video pass. Object = obj_id 1 (positive click); each hand =
+    its own obj_id (2, 3) prompted by a box, tracked jointly and subtracted.
+    Propagates forward AND backward from prompt_frame."""
+    import torch
+    predictor = _load_sam2(cfg)
+    obj = {}
     with torch.inference_mode(), torch.autocast(_device(), dtype=torch.bfloat16):
         state = predictor.init_state(video_path=frames_dir)
         predictor.add_new_points_or_box(
-            state, frame_idx=0, obj_id=1,
+            state, frame_idx=prompt_frame, obj_id=1,
             points=np.array([prompt_xy], np.float32),
             labels=np.array([1], np.int32))
-        for fidx, _ids, logits in predictor.propagate_in_video(state):
-            m = (logits[0] > 0).squeeze().cpu().numpy().astype(bool)
-            mp = os.path.join(masks_dir, f"{fidx:05d}.npy")
-            np.save(mp, m)
-            mask_paths[fidx] = mp
-    return masks_dir, mask_paths
+        if hand_aware and hand_boxes is not None:
+            for h in range(hand_boxes.shape[1]):
+                if not hand_valid[prompt_frame, h]:
+                    continue
+                b = hand_boxes[prompt_frame, h]
+                if not np.isfinite(b).all():
+                    continue
+                predictor.add_new_points_or_box(
+                    state, frame_idx=prompt_frame, obj_id=2 + h,
+                    box=b.astype(np.float32))
+
+        def _consume(it):
+            for fidx, ids, logits in it:
+                ms = {int(o): (logits[k] > 0).squeeze().cpu().numpy().astype(bool)
+                      for k, o in enumerate(ids)}
+                m = ms.get(1, np.zeros_like(next(iter(ms.values()))))
+                for o, hm in ms.items():
+                    if o != 1:
+                        m = m & ~hm
+                obj[fidx] = m
+
+        _consume(predictor.propagate_in_video(state, start_frame_idx=prompt_frame))
+        if prompt_frame > 0:
+            _consume(predictor.propagate_in_video(
+                state, start_frame_idx=prompt_frame, reverse=True))
+    mask_paths = [None] * T
+    for fidx, m in obj.items():
+        mp = os.path.join(masks_dir, f"{fidx:05d}.npy")
+        np.save(mp, m)
+        mask_paths[fidx] = mp
+    return mask_paths
 
 
 def _external_object_masks(pattern, frame_paths, out_dir):
