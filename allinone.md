@@ -1,106 +1,116 @@
-# Paper search — depth/point-cloud-guided diffusion for 3D shape generation (2023–2026)
+# Paper search: hand-object datasets with RGB-D + CAD + pose trajectories (2020–2026)
 
-Query: "depth or point cloud guided diffusion 3D shape generation partial observation"
-Errors: openreview (openreview-py not installed), open_alex (504 gateway timeout), dblp (0 results).
+Query: `hand object interaction dataset RGB-D 6DoF object pose hand pose annotations` · 2020–2026 · 10/source
+
+Source errors (verbatim):
+- `[openreview] Error: openreview not installed. pip install openreview-py`
+- `[dblp] Error: 500 Server Error: Internal Server Error for url: https://dblp.org/search/publ/api?...`
+- `[open_alex] Error: 504 Server Error: Gateway Timeout for url: https://api.openalex.org/works?...`
+
+## Results by source
 
 ### Semantic Scholar (10 papers)
 
 | # | Title | Date | Venue | Citations |
 |---|-------|------|-------|-----------|
-| [1](https://www.semanticscholar.org/paper/3e660b98fc741c5c8ade7a6ad53d1688cd8fe9e7) | Learning 3D Shape Latent for Point Cloud Completion | 2024 | IEEE TMM | 28 |
-| [2](https://www.semanticscholar.org/paper/cccf3d06830731d69df1e79fe64754a44e639f31) | Shape from Semantics: 3D Shape Generation from Multi-View Semantics | 2025 | arXiv | 1 |
-| [3](https://www.semanticscholar.org/paper/28599f30c865eff3975f5bed42ad6f32e02a8429) | RealDiff: Real-world 3D Shape Completion using Self-Supervised Diffusion Models | 2024 | arXiv | 1 |
-| [4](https://www.semanticscholar.org/paper/aba6ee4059bd866a04a67899eda056283b2a6356) | GPRS-Net: Global Statistical Prior Guided Relation-Aware Symmetric Point Cloud Completion | 2026 | IEEE Access | 0 |
-| [5](https://www.semanticscholar.org/paper/f1f70f44dfce8474bd73470857a20cba78c63743) | DiffPCN: Latent Diffusion Model Based on Multi-view Depth Images for Point Cloud Completion | 2025 | arXiv | 3 |
-| [6](https://www.semanticscholar.org/paper/2f9213b3289ccb1bd16c798c6ddcc8b1bbdebabe) | Point-Cloud Completion with Pretrained Text-to-image Diffusion Models (SDS-Complete) | 2023 | NeurIPS | 53 |
-| [7](https://www.semanticscholar.org/paper/7fe82922dbdc8a3a2c6c4afc574bc0476d770968) | Pose-Aware Diffusion for 3D Generation | 2026 | — | 0 |
-| [8](https://www.semanticscholar.org/paper/45e77ebba26c61c0d53cead7318a6b39a72f5d82) | TOSC: Task-Oriented Shape Completion for Open-World Dexterous Grasp Generation from Partial Point Clouds | 2026 | AAAI | 1 |
-| [9](https://www.semanticscholar.org/paper/3e1b25693ea3d9254d765b577f7a73b06890f09e) | Text-guided RGB-P grasp generation | 2025 | PeerJ CS | 0 |
-| [10](https://www.semanticscholar.org/paper/d94fd96feff501c65cb54b249a04ae689ed1da76) | End-to-End Diffusion-Based 3D Object Reconstruction From Robotic Tactile Sensing | 2026 | IEEE RA-L | 1 |
+| [1](https://www.semanticscholar.org/paper/44f3f54b7b7df9aaf268baceb65bfbd83f82267a) | AnyHand: A Large-Scale Synthetic Dataset for RGB(-D) Hand Pose Estimation | 2026 | arXiv | 1 |
+| [2](https://www.semanticscholar.org/paper/dc69d62b787c7be0da7218e34a792686ff9e628b) | MEgoHand: Multimodal Egocentric Hand-Object Interaction Motion Generation | 2025 | arXiv | 10 |
+| [3](https://www.semanticscholar.org/paper/35bf54b0f3458460539b73d4bcb704ef13645a56) | Enhancing hand-object interaction pose reconstruction through semantic-enhanced and reconstruction modules | 2025 | The Visual Computer | 1 |
+| [4](https://www.semanticscholar.org/paper/4a6a666bbd2a1416b20cbf201bc884e0949cd704) | RGBD Objects in the Wild (WildRGB-D) | 2024 | CVPR | 105 |
+| [5](https://www.semanticscholar.org/paper/badfbb8840137cdff4df97f19ecc574996352481) | HO-Cap: A Capture System and Dataset for 3D Reconstruction and Pose Tracking of Hand-Object Interaction | 2024 | arXiv | 24 |
+| [6](https://www.semanticscholar.org/paper/2a0b8be3594e8163f9ea4988658223d7c46cfcb3) | HOI4D: A 4D Egocentric Dataset for Category-Level Human-Object Interaction | 2022 | CVPR | 371 |
+| [7](https://www.semanticscholar.org/paper/a65ce32514cdfede235cca1605b3b6fae98303c6) | EgoInfinity: A Web-Scale 4D Hand-Object Interaction Data Engine | 2026 | — | 0 |
+| [8](https://www.semanticscholar.org/paper/98752da6009b8654d3ad2847f5a76fe816501666) | STFormer: Spatio-temporal former for hand-object interaction recognition | 2024 | Electronics Letters | 0 |
+| [9](https://www.semanticscholar.org/paper/4b2b51609fbf5d9e2e798da718c79635195abce4) | Multi-Modal Hand-Object Pose Estimation With Adaptive Fusion | 2024 | IEEE Access | 12 |
+| [10](https://www.semanticscholar.org/paper/88b8d6a443973d47240e21f62a8c4eb4528b3413) | Estimation of Hand Pressure and Pose From RGB Images | 2025 | IEEE Sensors J. | 1 |
 
-### OpenAlex (0 papers) — 504 gateway timeout from api.openalex.org
+### OpenAlex (0 papers) — source failed (504 Gateway Timeout)
 
 ### arXiv (10 papers)
 
 | # | Title | Date | Venue | Citations |
 |---|-------|------|-------|-----------|
-| [1](http://arxiv.org/abs/2302.10668v2) | PC²: Projection-Conditioned Point Cloud Diffusion for Single-Image 3D Reconstruction | 2023 | arXiv | — |
-| [2](http://arxiv.org/abs/2312.14124v2) | Neural Point Cloud Diffusion for Disentangled 3D Shape and Appearance Generation | 2023 | arXiv | — |
-| [3](http://arxiv.org/abs/2312.07231v1) | Fast Training of Diffusion Transformer with Extreme Masking for 3D Point Clouds Generation | 2023 | arXiv | — |
-| [4](http://arxiv.org/abs/2508.08910v1) | Masked Clustering Prediction for Unsupervised Point Cloud Pre-training | 2025 | arXiv | — |
-| [5](http://arxiv.org/abs/2511.05308v2) | Rethinking Metrics and Diffusion Architecture for 3D Point Cloud Generation | 2025 | arXiv | — |
-| [6](http://arxiv.org/abs/2411.14384v5) | Baking Gaussian Splatting into Diffusion Denoiser for Fast and Scalable Single-stage Image-to-3D Generation | 2024 | arXiv | — |
-| [7](http://arxiv.org/abs/2606.11578v1) | Contactless 3D Human Body Measurement Using Depth Cameras | 2026 | arXiv | — |
-| [8](http://arxiv.org/abs/2402.11680v1) | 3D Point Cloud Compression with RNN and Image Compression Methods | 2024 | arXiv | — |
-| [9](http://arxiv.org/abs/2505.13061v4) | 3D Visual Illusion Depth Estimation | 2025 | arXiv | — |
-| [10](http://arxiv.org/abs/2509.17206v1) | Guided and Unguided Conditional Diffusion Mechanisms for Structured and Semantically-Aware 3D Point Cloud Generation | 2025 | arXiv | — |
+| [1](http://arxiv.org/abs/2106.05266v1) | Semi-Supervised 3D Hand-Object Poses Estimation with Interactions in Time | 2021 | arXiv | — |
+| [2](http://arxiv.org/abs/2511.12030v1) | VPHO: Joint Visual-Physical Cue Learning for Hand-Object Pose Estimation | 2025 | arXiv | — |
+| [3](http://arxiv.org/abs/2004.10335v3) | How to track your dragon: Multi-Attentional RGB-D 6-DOF Object Pose Tracking | 2020 | arXiv | — |
+| [4](http://arxiv.org/abs/2508.14358v1) | Point Cloud Representations with Pose Continuity for Category-Level 6D Pose | 2025 | arXiv | — |
+| [5](http://arxiv.org/abs/2307.15514v2) | Revisiting Fully Convolutional Geometric Features for Object 6D Pose | 2023 | arXiv | — |
+| [6](http://arxiv.org/abs/2406.16384v2) | High-resolution open-vocabulary object 6D pose estimation | 2024 | arXiv | — |
+| [7](http://arxiv.org/abs/2111.03043v1) | A System for General In-Hand Object Re-Orientation | 2021 | arXiv | — |
+| [8](http://arxiv.org/abs/2206.15436v1) | Category-Level 6D Object Pose in the Wild (Wild6D) | 2022 | arXiv | — |
+| [9](http://arxiv.org/abs/2603.23370v1) | Object Pose Transformer: Unifying Unseen Object Pose Estimation | 2026 | arXiv | — |
+| [10](http://arxiv.org/abs/2007.09545v1) | ContactPose: A Dataset of Grasps with Object Contact and Hand Pose | 2020 | arXiv/ECCV | — |
 
-### OpenReview (0 papers) — openreview-py not installed
+### OpenReview (0 papers) — `openreview-py` not installed
 
 ### Crossref (10 papers)
 
 | # | Title | Date | Venue | Citations |
 |---|-------|------|-------|-----------|
-| [1](https://doi.org/10.1109/iccvw60793.2023.00313) | BuilDiff: 3D Building Shape Generation using Single-Image Conditional Point Cloud Diffusion | 2023 | ICCVW | 11 |
-| [2](https://doi.org/10.1109/icmla66185.2025.00117) | Guided and Unguided Conditional Diffusion Mechanisms for 3D Point Cloud Generation | 2025 | ICMLA | 0 |
-| [3](https://doi.org/10.1109/cvpr52733.2024.00839) | Neural Point Cloud Diffusion for Disentangled 3D Shape and Appearance Generation | 2024 | CVPR | 7 |
-| [4](https://doi.org/10.1109/3dv69130.2026.00133) | Rethinking Metrics and Diffusion Architecture for 3D Point Cloud Generation | 2026 | 3DV | 0 |
-| [5](https://doi.org/10.1109/ijcnn64981.2025.11228786) | MSIA-SDiT3D: Multi-Scale Interpolation Attention in Lightweight Diffusion Transformers | 2025 | IJCNN | 0 |
-| [6](https://doi.org/10.1109/iccv51701.2025.01777) | Blended Point Cloud Diffusion for Localized Text-Guided Shape Editing | 2025 | ICCV | 1 |
-| [7](https://doi.org/10.1109/prai67447.2025.11412596) | Guided 3D Generation Through Depth Image Fusion Utilizing Diffusion Model | 2025 | PRAI | 0 |
-| [8](https://doi.org/10.1109/iccea62105.2024.10603554) | SSP-GAN: Spectral Normalization Sphere-Guided 3D Point Cloud Generation | 2024 | ICCEA | 0 |
-| [9](https://doi.org/10.1109/3dv66043.2025.00077) | mmDiffusion: mmWave Diffusion for Sequential 3D Human Dense Point Cloud Generation | 2025 | 3DV | 0 |
-| [10](https://doi.org/10.1109/cac67268.2025.11487386) | PCTDM: Robust 3D Point Cloud Generation via Diffusion Probabilistic Model | 2025 | CAC | 0 |
+| [1](https://doi.org/10.2139/ssrn.5291112) | Posedeformer: Pose-Driven Deformation NeRF for 3D Hand-Object Interaction | n/a | SSRN | 0 |
+| [2](https://doi.org/10.5220/0010902400003124) | 3D Hand and Object Pose Estimation for Real-time Human-robot Interaction | 2022 | VISIGRAPP | 1 |
+| [3](https://doi.org/10.1109/aiita69518.2026.11567371) | RayPose: Hand Joint Ray Aggregation for 6DoF Object Pose Estimation | 2026 | AIITA | 0 |
+| [4](https://doi.org/10.1109/icra40945.2020.9197426) | YCB-M: Multi-Camera RGB-D Dataset for Object Recognition and 6DoF Pose | 2020 | ICRA | 24 |
+| [5](https://doi.org/10.1109/icra40945.2020.9197299) | Hand Pose Estimation for Hand-Object Interaction using Augmented Autoencoder | 2020 | ICRA | 7 |
+| [6](https://doi.org/10.5220/0012370700003660) | Hand Mesh and Object Pose Reconstruction Using Cross Model Autoencoder | 2024 | VISIGRAPP | 2 |
+| [7](https://doi.org/10.2139/ssrn.4153241) | Multi-Stage Attentional Framework for 3D Hand-Object Pose from RGB-D | n/a | SSRN | 0 |
+| [8](https://doi.org/10.52202/075280-3488) | DeepSimHO: Stable Pose Estimation for Hand-Object Interaction via Physics Simulation | 2023 | NeurIPS | 1 |
+| [9](https://doi.org/10.1109/cait64506.2024.10962989) | Multi-feature fusion network: Hand pose estimation for hand-object interaction | 2024 | CAIT | 0 |
+| [10](https://doi.org/10.1109/iccv51070.2023.01352) | AffordPose: Large-scale Hand-Object Interactions with Affordance-driven Hand Pose | 2023 | ICCV | 51 |
 
-### DBLP (0 papers) — no matches in this window
+### DBLP (0 papers) — source failed (500 Internal Server Error)
 
-### Model Knowledge (6 papers, may include uncertain entries)
+### Model Knowledge (10 papers — the core datasets the APIs missed)
 
 | # | Title | Year | Venue | Notes |
 |---|-------|------|-------|-------|
-| [1](https://scholar.google.com/scholar?q=Diffusion+Posterior+Sampling+for+General+Noisy+Inverse+Problems) | Diffusion Posterior Sampling for General Noisy Inverse Problems (Chung et al.) | 2023 | ICLR | THE canonical test-time guidance mechanism: gradient of an observation loss on x̂0 injected at each denoising step |
-| [2](https://scholar.google.com/scholar?q=Loss-Guided+Diffusion+Models+Plug-and-Play+Controllable+Generation) | Loss-Guided Diffusion Models for Plug-and-Play Controllable Generation (Song et al.) | 2023 | ICML | Generalizes DPS to arbitrary differentiable losses — the recipe for a Chamfer/free-space guidance term |
-| [3](https://scholar.google.com/scholar?q=TRELLIS+Structured+3D+Latents+Scalable+Versatile+3D+Generation) | Structured 3D Latents for Scalable and Versatile 3D Generation (TRELLIS) | 2024 | CVPR 2025 | The sparse-structured-latent rectified-flow family SAM-3D Objects builds on — the latent space any guidance would act in |
-| [4](https://scholar.google.com/scholar?q=SDFusion+Multimodal+3D+Shape+Completion+Generation) | SDFusion: Multimodal 3D Shape Completion, Reconstruction, and Generation | 2023 | CVPR | Latent SDF diffusion with partial-observation conditioning — shape completion as conditional generation |
-| [5](https://scholar.google.com/scholar?q=SAM+3D+Objects+Meta+single+image+3D+reconstruction) | SAM 3D Objects (Meta) | 2025 | tech report | The model in question: image+mask → posed 3D asset; generative geometry stage → guidance-compatible |
-| [6](https://scholar.google.com/scholar?q=DreamFusion+Text-to-3D+using+2D+Diffusion) | DreamFusion: Text-to-3D using 2D Diffusion (SDS) | 2022 | ICLR 2023 | (outside window, foundational) Score-distillation: optimize a 3D representation under a frozen diffusion prior — the mechanism behind SDS-Complete |
+| [1](https://scholar.google.com/scholar?q=HOT3D+Meta+egocentric+hand+object+tracking+dataset) | HOT3D: Hand and Object Tracking in 3D from Egocentric Multi-View Videos | 2024 | arXiv → CVPR 2025 | Meta; Aria+Quest3, 33 scanned CAD w/ PBR, mocap-grade object+hand pose traj. **No depth sensor** |
+| [2](https://scholar.google.com/scholar?q=DexYCB+benchmark+hand+object) | DexYCB: A Benchmark for Capturing Hand Grasping of Objects | 2021 | CVPR | NVIDIA; 8× RealSense RGB-D, YCB CADs, MANO + object 6DoF per frame |
+| [3](https://scholar.google.com/scholar?q=HOnnotate+HO-3D+dataset) | HO-3D (HOnnotate) / HO-3D_v3 | 2020/2021 | CVPR / arXiv | RGB-D, YCB objects, multi-cam optimized hand+object poses; v3 improved accuracy |
+| [4](https://scholar.google.com/scholar?q=H2O+two+hands+object+interaction+dataset+ETH) | H2O: Two Hands Manipulating Objects for First Person Interaction Recognition | 2021 | ICCV | 4 static + 1 ego RGB-D, both-hands MANO + 8 CAD objects w/ 6DoF |
+| [5](https://scholar.google.com/scholar?q=ARCTIC+dataset+dexterous+bimanual+articulated) | ARCTIC: Dexterous Bimanual Manipulation of Articulated Objects | 2023 | CVPR | 54-cam Vicon mocap-grade poses, articulated CADs; **RGB only, no depth** |
+| [6](https://scholar.google.com/scholar?q=OakInk2+bimanual+hand+object+dataset) | OakInk / OakInk2 | 2022/2024 | CVPR | Multi-view + ego, complex bimanual tasks, object CAD + MANO; depth availability partial (uncertain — verify) |
+| [7](https://scholar.google.com/scholar?q=Aria+Digital+Twin+egocentric+dataset) | Aria Digital Twin (ADT) | 2023 | ICCV | Ego Aria; GT object 6DoF + RENDERED GT depth + segmentation from digital twin; hand annotation limited (no full MANO) |
+| [8](https://scholar.google.com/scholar?q=TACO+tool+action+dataset+hand+object) | TACO: Benchmarking Generalizable Bimanual Tool-ACtion-Object Understanding | 2024 | CVPR | 12 exo + 1 ego views, automatic annotation pipeline, tool CADs (depth: uncertain — verify) |
+| [9](https://scholar.google.com/scholar?q=GRAB+dataset+whole+body+grasping) | GRAB: A Dataset of Whole-Body Human Grasping of Objects | 2020 | ECCV | Pure mocap (no video) — useful only as pose prior |
+| [10](https://scholar.google.com/scholar?q=HO-Cap+dataset+hand+object+pose+tracking) | HO-Cap (also in SS results) | 2024 | arXiv | 8× RealSense RGB-D + semi-automatic annotation; scanned object models; MANO hands |
 
 ## Summary
 
-**Overview.** Query "depth or point cloud guided diffusion 3D shape generation partial observation", 2023–2026, 30 API results + 6 recalled. The corpus splits into (a) test-time-guided or projection-conditioned diffusion for single-image/partial-input 3D reconstruction, (b) diffusion-based point-cloud completion from partial scans, (c) generic 3D point-cloud diffusion architectures.
+**Overview.** 30 API papers + 10 model-knowledge entries, 2020–2026. The API hits are mostly methods; the datasets that actually satisfy "video + depth + CAD + object pose trajectory + hand pose" come from the model-knowledge list plus HO-Cap/ContactPose/HOI4D from the APIs.
 
-**Trends.** Completion-as-conditional-generation moved from GAN/regression to diffusion around 2023 (SDS-Complete, SDFusion, PC²) and by 2025–26 is applied (grasping: TOSC, RGB-P grasp; tactile reconstruction; mmWave). Structured-latent flow models (TRELLIS family, incl. SAM-3D) became the dominant image-to-3D backbone. Test-time guidance (DPS-style) is standard practice in 2D and increasingly ported to 3D.
+**Trends.** Dataset lineage runs mocap-only (GRAB) → single-camera RGB-D fits (HO-3D) → multi-camera RGB-D rigs (DexYCB, H2O, HO-Cap) → mocap-grade multi-view with ego video (ARCTIC, HOT3D, OakInk2). Annotation quality rises with rig cost; sensor depth availability *drops* as rigs go mocap/ego (ARCTIC, HOT3D have no depth stream). 2024+ trend: semi/fully automatic annotation pipelines (HO-Cap, TACO) and digital-twin rendered GT (ADT).
 
-**Key themes.** (1) Projection/observation-conditioned 3D diffusion — PC², BuilDiff, DiffPCN; (2) test-time guided sampling of pretrained priors — DPS, LGD, SDS-Complete; (3) partial-cloud completion with diffusion — RealDiff, SDFusion, TOSC; (4) grasp/contact-oriented completion — TOSC, RGB-P, tactile RA-L; (5) 3D latent diffusion backbones — TRELLIS, neural point cloud diffusion.
+**Key themes.** (1) RGB-D + fitted poses: DexYCB, HO-3D, H2O, HO-Cap; (2) mocap-grade pose, no depth: HOT3D, ARCTIC; (3) rendered/twin GT: ADT; (4) grasp-centric static: ContactPose, AffordPose; (5) category-level in-the-wild: HOI4D, Wild6D, WildRGB-D.
 
 **Keywords frequency.**
 
 | Keyword | Count |
 |---|---|
-| point cloud | 18 |
-| diffusion | 17 |
-| generation | 14 |
-| completion | 6 |
-| guided/guidance | 6 |
+| hand-object interaction | 14 |
+| 6DoF object pose | 10 |
+| RGB-D | 8 |
+| MANO hand pose | 6 |
+| egocentric | 5 |
 
 **Most cited by accepted paper.**
 
 | Rank | Title | Year | Citations |
 |---|---|---|---|
-| 1 | Point-Cloud Completion with Pretrained Text-to-image Diffusion Models | 2023 | 53 |
-| 2 | Learning 3D Shape Latent for Point Cloud Completion | 2024 | 28 |
-| 3 | BuilDiff | 2023 | 11 |
-| 4 | Neural Point Cloud Diffusion (CVPR) | 2024 | 7 |
-| 5 | DiffPCN | 2025 | 3 |
+| 1 | HOI4D | 2022 | 371 |
+| 2 | WildRGB-D | 2024 | 105 |
+| 3 | AffordPose | 2023 | 51 |
+| 4 | HO-Cap | 2024 | 24 |
+| 5 | YCB-M | 2020 | 24 |
 
 **Most cited by first author.**
 
 | Rank | Author | Papers in set | Total citations |
 |---|---|---|---|
-| 1 | Yoni Kasten | 1 | 53 |
-| 2 | Zhikai Chen | 1 | 28 |
-| 3 | Yao Wei | 1 | 11 |
-| 4 | Philipp Schröppel | 2 | 7 |
-| 5 | Zijun Li | 1 | 3 |
+| 1 | Yunze Liu | 1 | 371 |
+| 2 | Hongchi Xia | 1 | 105 |
+| 3 | Juntao Jian | 1 | 51 |
+| 4 | Jikai Wang | 1 | 24 |
+| 5 | Till Grenzdorffer | 1 | 24 |
 
-**Recommendations for reading.** 1) DPS (ICLR'23) — the guidance mechanism itself; 2) PC² (2023) — projection-conditioned single-image 3D diffusion, closest to "make generation agree with a camera-frame observation"; 3) SDS-Complete (NeurIPS'23) — optimize a shape against a partial cloud under a frozen diffusion prior (the post-hoc route); 4) RealDiff (2024) — real-scan completion with diffusion, the noisy-partial-observation regime; 5) TOSC (AAAI'26) — completion in the grasping context, nearest to HOI.
+**Recommendations for reading.** DexYCB (CVPR 2021, the RGB-D workhorse) → HO-3D_v3 (single-cam RGB-D fits and their error analysis) → HO-Cap (2024, the modern RGB-D pipeline) → HOT3D (2024, the quality ceiling, ego) → ADT (rendered-GT paradigm).

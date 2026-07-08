@@ -183,6 +183,27 @@ and annotations for ALL clips are now in `/workspace/datasets/hoi4d`
 (depth-folder download still pending a downloader fix; kettle_N15 GT depth
 lives in the archived runs).
 
+## Dataset options beyond HOI4D (surveyed 2026-07-08)
+
+Requirement: video + sensor depth + CAD + object pose trajectory + hand pose.
+HOI4D's annotation quality is the current bottleneck for evaluation
+(per-frame human box fits: ±1.5 cm scatter, 6.4 mm GT-vs-depth floor,
+depth↔RGB wobble — measured in `sam3d_icp/RESULTS.md`).
+
+| dataset | depth | CAD | obj pose traj | hand | pose quality vs HOI4D |
+|---|---|---|---|---|---|
+| **HOT3D** (Meta 2024) | ✗ no depth camera (Aria/Quest3) — but mocap-grade poses + scanned CADs let you RENDER pixel-perfect GT depth | ✓ 33 scanned + PBR | ✓ mocap-grade | ✓ MANO/UmeTrack | ≫ |
+| **DexYCB** (NVIDIA 2021) | ✓ 8× RealSense | ✓ YCB | ✓ | ✓ MANO | > (8-cam joint fits) |
+| **HO-Cap** (2024) | ✓ 8× RealSense | ✓ scanned | ✓ | ✓ MANO | > newest tooling |
+| H2O (2021) | ✓ | ✓ | ✓ | ✓ two hands | > |
+| ARCTIC (2023) | ✗ | ✓ articulated | ✓ mocap-grade | ✓ | ≫ |
+| Aria Digital Twin (2023) | ~ rendered from twin | ✓ | ✓ | limited (no MANO) | ≫ |
+
+Notes: HOT3D is egocentric with headset motion (camera:identity does not
+hold — use its mocap camera trajectories); Aria RGB is fisheye (needs
+projectaria-tools calibration, not pinhole K). DexYCB/HO-Cap are the drop-in
+matches for the current harness (real sensor depth, static cams).
+
 ## Blocked / caveats
 
 - The raw HOI4D tree (`/workspace/hoi4d`: 12 clips, GT depth, masks) is
