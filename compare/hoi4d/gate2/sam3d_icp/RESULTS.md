@@ -260,3 +260,43 @@ decal on the wrong side). The stage-3 rotations that `rotation: init` and the
 joint prior anchor to would then be systematically flipped. GT object poses
 (HOI4D annotations, downloading to /workspace/datasets/hoi4d) settle this
 with ADD/geodesic — the next verification step.
+
+## GT-pose verdict (2026-07-08, gt_pose_eval.py — HOI4D annotations + CAD)
+
+Non-circular at last: HOI4D GT objpose (seq ZY20210800002/H2/C12/N15/S196/
+s04/T2, frames 0-74 = ours exactly; euler INTRINSIC "XYZ" verified by chamfer
+vs depth cloud) + Kettle/015.obj CAD, downloaded to /workspace/datasets/hoi4d.
+GT's own noise floor vs the aligned depth cloud: 6-16 mm (annotations were
+made in the depth-camera frame; a small constant depth->RGB offset exists).
+
+| arm | chamfer med/p90 | centroid | rot (abs, shape-G) | rot_traj (const removed) |
+|---|---|---|---|---|
+| icp2 | 28.4/32.1 mm | 7.45 cm | 55.0/62.5° | 17.4/36.1° |
+| icp4 | 29.2/33.4 mm | 6.72 cm | 56.0/64.0° | 19.1/44.2° |
+| icp5 | 33.4/35.6 mm | 7.35 cm | 81.1/95.3° | 13.7/49.5° |
+| icpj3 | 29.4/31.3 mm | 6.56 cm | 81.6/97.4° | **13.3**/45.1° |
+
+Three conclusions:
+1. **Every arm carries a large CONSTANT attitude error** (55-81° absolute
+   rotation, while rot_traj after removing one constant offset drops to
+   13-19° median). The whole trajectory is rotated wrongly as a block: the
+   ANCHOR-FRAME initialization (stage-3 tracker attitude at the anchor) is
+   the dominant unfixed error, and both `rotation: init` and the joint prior
+   faithfully preserve it. This is what the user kept seeing as "still not
+   aligned", what the photometric probe flagged (~120-180° azimuth), and
+   what no depth/silhouette metric could see. (Caveat: shape-G has its own
+   azimuth-basin ambiguity on this near-revolution kettle — the absolute
+   rot numbers are +-one basin; the "large constant error" conclusion holds
+   under any basin choice since rot_traj << rot.)
+2. **icpj3 is the best orientation TRACKER** (rot_traj med 13.3°) and
+   best/tied on chamfer p90 + centroid — the joint build wins on GT too,
+   but only within a globally mis-attituded family.
+3. **Depth fit was overfitting**: icp4 fits the cloud at 3.9 mm — BELOW
+   GT's own 6-16 mm residual to the same cloud — while sitting 29 mm
+   chamfer / 56° from truth. Sub-cm depth-metric differences between arms
+   are below what the evidence can decide; treat them accordingly.
+
+Next build implied: anchor-frame attitude search (N rotation hypotheses at
+the anchor frame scored by held-out photometric + depth+silhouette, or GT
+pose when available) BEFORE registration; the rest of the pipeline already
+tracks well.
