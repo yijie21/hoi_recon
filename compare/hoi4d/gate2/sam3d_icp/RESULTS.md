@@ -215,3 +215,48 @@ resolution is not a better trade-off knob but fixing the proportions:
 per-axis scale + joint silhouette-plus-depth objective (b5 slice 1).
 Default config stays rotation: free (best depth numbers); pick rotinit when
 visual orientation matters more.
+
+## Photometric held-out check (2026-07-08, photometric_check.py)
+
+Motivation: all prior metrics score against the evidence the optimizer fits
+(GT depth, mask) — partially circular, and rotation-blind on the symmetric
+dome. RGB appearance is never fit by the registration, and the kettle's
+texture (blue decal, handle stripe, lid) is rotation-sensitive, so photometric
+similarity of the splatted vertex-colored SAM-3D mesh (417k verts, z-buffered
+at BIN=4) vs the real frame is a genuinely held-out verdict.
+
+Scores (median over 75 frames; NCC on LAB chroma over rendered coverage /
+coverage∩mask; SSIM + LPIPS masked to coverage — the earlier unmasked crop
+version rewarded bigger overhang via shared gray padding and was discarded):
+
+| arm | NCC(cov) | NCC(mask) | SSIM | LPIPS↓ |
+|---|---|---|---|---|
+| icp2 | 0.150 | -0.013 | 0.194 | 0.594 |
+| icp4 | -0.063 | -0.058 | 0.237 | 0.649 |
+| icp5 | -0.064 | -0.073 | 0.221 | 0.600 |
+| icpj3 | -0.040 | -0.039 | 0.249 | 0.609 |
+
+Verdict: **no arm is texture-aligned** (chroma correlation ≈ 0 everywhere);
+arm differences are within this channel's noise. Consistent with the visual
+debug grid (photometric_debug.png): rendered attitude does not match the real
+view in any arm.
+
+Sensitivity probe (icpj3 poses perturbed about camera z, 15 frames):
+
+| perturb | NCC | SSIM | LPIPS↓ |
+|---|---|---|---|
+| 0° | -0.040 | 0.247 | 0.611 |
+| 10° | -0.053 | 0.246 | 0.603 |
+| 30° | -0.076 | 0.204 | 0.611 |
+| 60° | +0.077 | 0.154 | 0.620 |
+| 120° | **+0.161** | 0.158 | 0.656 |
+| 180° | +0.100 | 0.250 | **0.553** |
+
+Chroma NCC peaks ~120° off and LPIPS is best at 180° — either the channel is
+too noisy to rank arms (magnitudes are small; albedo-vs-shading gap, coarse
+splat), or the shipped AZIMUTH is genuinely ~120–180° wrong: exactly the flip
+a silhouette tracker commits on a near-symmetric outline (outline matches,
+decal on the wrong side). The stage-3 rotations that `rotation: init` and the
+joint prior anchor to would then be systematically flipped. GT object poses
+(HOI4D annotations, downloading to /workspace/datasets/hoi4d) settle this
+with ADD/geodesic — the next verification step.
