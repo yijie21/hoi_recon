@@ -218,6 +218,17 @@ BOP-eval canonical; the display object_models (mm) are NOT all canonically
 consistent (uid 31 mouse is axis-swapped + offset ~2 cm). Poses/cameras are
 quaternion-wxyz world transforms.
 
+**HOT3D-HIT** (arXiv 2512.07394 "Reconstructing Objects along Hand
+Interaction Timelines") downloaded to
+`/workspace/datasets/hot3d/hot3d-hit/ROHIT-Paper-data/hot3d_hit.json`:
+113 per-object interaction timelines over 20 HOT3D sequences (22 categories,
+all names map to model uids via object_models_models_info.json); segments
+labeled scene_static / scene_dynamic / inhand (1,239 in-hand grasps, 58,789
+frames), frame indices into the FULL sequence. 19/20 sequences are Aria and
+contain 302 BOP clips — the bridge to single-interaction clip selection
+(BOP clips are timestamp-indexed; full-sequence frame↔timestamp mapping via
+the ROHIT repo's parsing, github.com/zhifanzhu/objects-along-hit).
+
 ### Pipeline run on HOT3D (2026-07-08): the strategy generalizes, and so does its failure mode
 
 The full icpj recipe ran end-to-end on HOT3D clip-002500 (vase, 150 frames)
