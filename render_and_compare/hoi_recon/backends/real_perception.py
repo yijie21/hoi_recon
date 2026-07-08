@@ -349,7 +349,11 @@ def segment_object(cfg, frames_dir, frame_paths, prompt_xy, out_dir,
     are tracked as their own SAM2 objects and subtracted; several candidate
     object clicks (vetoed against the prompt-frame hand masks) are tracked as
     independent SAM2 objects and the best track is selected by mask-QA score
-    (mask_qa.score_track)."""
+    (mask_qa.score_track). If EVERY candidate track is bad (an object
+    enclosed by both hands — the HOT3D puzzle_toy cube — leaves only
+    degenerate hand-subtracted slivers), fall back to the vanilla single
+    track from the original click with NO hand subtraction: the merged
+    object+hand mask is the better of two evils there."""
     pattern = os.environ.get("RC_OBJECT_MASK_PATTERN")
     if pattern:
         return _external_object_masks(pattern, frame_paths, out_dir)
@@ -365,6 +369,11 @@ def segment_object(cfg, frames_dir, frame_paths, prompt_xy, out_dir,
     from ..logging_utils import log
     mask_paths = _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir,
                                             prompt_xy, hand_boxes, hand_valid)
+    if mask_paths is None:
+        log("all candidates bad → vanilla single-track fallback (object "
+            "likely enclosed by hands)", "warn")
+        mask_paths = _run_sam2_once(cfg, frames_dir, T, masks_dir, prompt_xy,
+                                    0, hand_boxes, hand_valid, False)
     r = qa_report(mask_paths, hand_boxes, hand_valid)
     log(f"mask QA (chosen track): bad={r['bad']} "
         f"hand_overlap={r['hand_overlap'].mean():.2f} "
@@ -442,7 +451,12 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
          propagation tracks hands and all candidates together.
       4. Per candidate: hand masks are subtracted per frame, the track is
          scored with mask_qa.score_track (tIoU vs hand overlap / area jump /
-         border touching), and the best-scoring track wins."""
+         border touching), and the best-scoring track wins.
+
+    Returns mask_paths, or None when no candidate survives the veto or every
+    candidate track is bad=True (an object enclosed by both hands leaves only
+    degenerate hand-subtracted slivers) — the caller then falls back to the
+    vanilla single track without hand subtraction."""
     import shutil
     import torch
     from ..mask_qa import qa_report, score_track
@@ -495,9 +509,8 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
                 continue
             cands.append((cx, cy))
         if not cands:
-            log("all candidate clicks discarded — falling back to the "
-                "original prompt", "warn")
-            cands = [(x0, y0)]
+            log("no candidate click survives the hand-mask veto", "warn")
+            return None
 
         for k, c in enumerate(cands):
             predictor.add_new_points_or_box(
@@ -537,8 +550,8 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
             _consume(predictor.propagate_in_video(
                 state, start_frame_idx=prompt_frame, reverse=True))
 
-    # 4. score every candidate track, select the best
-    best_k, best_s = 0, -np.inf
+    # 4. score every candidate track, select the best; all bad -> fall back
+    scores, bads = [], []
     for k, c in enumerate(cands):
         r = qa_report(cand_paths[k], hand_boxes, hand_valid)
         s = score_track(r["area"], r["tiou"], r["hand_overlap"],
@@ -547,9 +560,16 @@ def _run_sam2_multi_hypothesis(cfg, frames_dir, T, masks_dir, prompt_xy,
             f"tiou={float(np.mean(r['tiou'])) if len(r['tiou']) else 0.0:.2f} "
             f"hand_overlap={r['hand_overlap'].mean():.2f} "
             f"border={r['border_frac']:.2f} bad={r['bad']}")
-        if s > best_s:
-            best_k, best_s = k, s
-    log(f"seg candidate {best_k} selected (score={best_s:.3f})")
+        scores.append(s)
+        bads.append(bool(r["bad"]))
+    if all(bads):
+        for d in cand_dirs:
+            shutil.rmtree(d, ignore_errors=True)
+        log(f"all {len(cands)} candidate tracks bad=True — no usable "
+            "hand-subtracted track", "warn")
+        return None
+    best_k = int(np.argmax(scores))
+    log(f"seg candidate {best_k} selected (score={scores[best_k]:.3f})")
 
     mask_paths = [None] * T
     for fidx, cp in enumerate(cand_paths[best_k]):
