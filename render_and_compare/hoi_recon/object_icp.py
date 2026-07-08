@@ -130,16 +130,19 @@ def _attitude_hypotheses(n_hyp):
     return hyps
 
 
-def _score_hypothesis(src_pts, tgt, masks_dir, K, R, t, s, src_cols,
-                      frames_dir, frame, rng):
+def _score_hypothesis(src_pts, tgt, dt, lab_img, K, R, t, s, src_cols, rng,
+                      trim):
     """Cheap numpy score for one attitude hypothesis at a single anchor frame
     (lower is better): trimmed depth RMS (mm) + mean out-of-mask distance
     transform (px) of projected points + (if colors available) mean LAB-chroma
     mismatch of in-mask points (÷10, matching the in-loop photometric scaling).
 
-    Kept deliberately light: KDTree depth RMS on <=2000 mesh points, image-space
-    terms on <=500 projected points. `rng` is passed fresh-seeded per hypothesis
-    so every hypothesis is scored on the SAME point subset (fair + deterministic)."""
+    `dt` is the pre-computed full-res out-of-mask distance transform and
+    `lab_img` the pre-computed full-res LAB image (float32) or None — both
+    hoisted out of the hypothesis loop by the caller (frame-constant). `src_cols`
+    is in [0,1]. Kept light: KDTree depth RMS on <=2000 mesh points, image terms
+    on <=500 projected points. `rng` is fresh-seeded per hypothesis so every
+    hypothesis is scored on the SAME point subset (fair + deterministic)."""
     import cv2
     from scipy.spatial import cKDTree
 
@@ -150,34 +153,29 @@ def _score_hypothesis(src_pts, tgt, masks_dir, K, R, t, s, src_cols,
     Xc = src_s[idx] @ R.T + t                       # posed points, camera frame
     # (a) trimmed depth RMS: nearest posed point to each target point
     d, _ = cKDTree(Xc).query(tgt, workers=-1)
-    keep = d <= np.quantile(d, 0.8)
+    keep = d <= np.quantile(d, trim)
     score = float(np.sqrt(np.mean(d[keep] ** 2)) * 1000.0)
     # image-space terms on a <=500 subset of the posed points
     pj = np.arange(len(Xc)) if len(Xc) <= 500 \
         else rng.choice(len(Xc), 500, replace=False)
     Xp = Xc[pj]
     z = np.clip(Xp[:, 2], 0.1, None)
-    m = np.load(os.path.join(masks_dir, f"{frame:05d}.npy")) > 0
-    H, W = m.shape
-    dt = cv2.distanceTransform((~m).astype(np.uint8), cv2.DIST_L2, 3)
+    H, W = dt.shape
     ui = np.clip(np.round(Xp[:, 0] / z * fx + cx).astype(int), 0, W - 1)
     vi = np.clip(np.round(Xp[:, 1] / z * fy + cy).astype(int), 0, H - 1)
     dt_pt = dt[vi, ui]
     score += float(dt_pt.mean())
     # (c) optional LAB-chroma mismatch of in-mask projected points
-    if src_cols is not None and frames_dir is not None:
-        img = cv2.imread(os.path.join(frames_dir, f"{frame:05d}.jpg"))
-        if img is not None:
-            inmask = dt_pt < 1.0
-            if inmask.any():
-                lab_img = cv2.cvtColor(img, cv2.COLOR_BGR2LAB).astype(np.float32)
-                cols = np.asarray(src_cols, np.float32)[idx][pj]
-                lab_pts = cv2.cvtColor((cols[None] * 255).astype(np.uint8),
-                                       cv2.COLOR_RGB2LAB)[0].astype(np.float32)
-                ia = lab_img[vi, ui, 1:] - 128.0
-                pa = lab_pts[:, 1:] - 128.0
-                chroma = np.sqrt(((ia - pa) ** 2).sum(1))
-                score += float(chroma[inmask].mean()) / 10.0
+    if lab_img is not None and src_cols is not None:
+        inmask = dt_pt < 1.0
+        if inmask.any():
+            cols = np.asarray(src_cols, np.float32)[idx][pj]     # [0,1]
+            lab_pts = cv2.cvtColor((cols[None] * 255).astype(np.uint8),
+                                   cv2.COLOR_RGB2LAB)[0].astype(np.float32)
+            ia = lab_img[vi, ui, 1:] - 128.0
+            pa = lab_pts[:, 1:] - 128.0
+            chroma = np.sqrt(((ia - pa) ** 2).sum(1))
+            score += float(chroma[inmask].mean()) / 10.0
     return score
 
 
@@ -435,11 +433,17 @@ def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
     sampled = trimesh.sample.sample_surface(mesh, n_src, seed=0)
     src_pts = np.asarray(sampled[0])
     src_fidx = np.asarray(sampled[1])          # source face of each sampled point
-    # per-surface-point color (mean of the sampled face's vertex colors); None
-    # for the depth-lift fallback mesh, which carries no vertex colors.
+    # per-surface-point color (mean of the sampled face's vertex colors), always
+    # normalized to [0,1]; None for the depth-lift fallback mesh (no colors).
+    # SAM-3D vertex colors arrive as uint8 [0,255] (real_perception.run_object_sam3d
+    # -> stage3 "colors"); other/future producers may already be [0,1]. Normalize
+    # defensively: treat any array whose max exceeds 1.5 as 0-255 and divide.
     src_cols = None
     if obj_colors is not None:
-        fc = np.asarray(obj_colors)[np.asarray(mesh.faces)].mean(1)   # per-face
+        oc = np.asarray(obj_colors, np.float32)
+        if oc.size and float(oc.max()) > 1.5:
+            oc = oc / 255.0
+        fc = oc[np.asarray(mesh.faces)].mean(1)   # per-face mean color, [0,1]
         src_cols = fc[src_fidx]                # [n_src, 3] in 0-1
     frames_dir = frames_dir or None            # treat "" (no frames) as absent
     rng = np.random.default_rng(0)
@@ -520,12 +524,20 @@ def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
         hyps = _attitude_hypotheses(n_hyp)
         best_sc, best_G = np.inf, np.eye(3)
         R_a, t_a = poses[a][:3, :3], poses[a][:3, 3]
+        # hoist the frame-constant anchor mask DT + LAB image out of the loop
+        m_a = np.load(os.path.join(masks_dir, f"{a:05d}.npy")) > 0
+        dt_a = cv2.distanceTransform((~m_a).astype(np.uint8), cv2.DIST_L2, 3)
+        lab_a = None
+        if src_cols is not None and frames_dir is not None:
+            img_a = cv2.imread(os.path.join(frames_dir, f"{a:05d}.jpg"))
+            if img_a is not None:
+                lab_a = cv2.cvtColor(img_a, cv2.COLOR_BGR2LAB).astype(np.float32)
         for G in hyps:
             # fresh rng(0) per hypothesis -> identical point subset for a fair,
             # deterministic comparison
-            sc = _score_hypothesis(src_pts, targets[a], masks_dir, K, R_a @ G,
-                                   t_a, s, src_cols, frames_dir, a,
-                                   np.random.default_rng(0))
+            sc = _score_hypothesis(src_pts, targets[a], dt_a, lab_a, K, R_a @ G,
+                                   t_a, s, src_cols, np.random.default_rng(0),
+                                   trim)
             if sc < best_sc:
                 best_sc, best_G = sc, G
         applied = not np.allclose(best_G, np.eye(3))
