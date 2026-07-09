@@ -1,49 +1,78 @@
-"""Stable-grasp detector (hoi_recon.grasp_segments.stable_grasp_mask) and the
-consecutive-pair selection it feeds into object_icp._joint_refine's rigidity
-term."""
+"""Contact-based stable-grasp detector
+(hoi_recon.grasp_segments.grasp_mask_contact) and the consecutive-pair
+selection it feeds into object_icp._joint_refine's rigidity term.
+
+v2 detection is CONTACT-based (min hand-vertex-to-object-surface distance),
+not velocity-based: a relative hand-to-object quantity, immune to the
+absolute-trajectory ICP jitter that made the old velocity detector mis-fire,
+and it includes in-hand rotation (no hand-speed gate)."""
 import numpy as np
 import sys
 
 sys.path.insert(0, "/workspace/code/hoi_recon/render_and_compare")
-from hoi_recon.grasp_segments import stable_grasp_mask
+from hoi_recon.grasp_segments import grasp_mask_contact, grasp_spans
+
+# small fixed point clouds for a hand and an object; per-frame centres below
+_HOFF = np.array([[0., 0., 0.], [0.01, 0., 0.],
+                  [0., 0.01, 0.], [0., 0., 0.01]])      # 4 "hand vertices"
+_OOFF = np.array([[0., 0., 0.], [0.005, 0., 0.], [0., 0.005, 0.]])  # 3 obj pts
 
 
-def test_rigid_motion_detected():
-    t = np.linspace(0, 1, 60)[:, None]
-    wrist = np.concatenate([t, t * 0.5, 1.0 + 0 * t], 1)   # moving hand
-    obj = wrist + np.array([0.03, 0.01, 0.02])             # rigid offset
-    m = stable_grasp_mask(wrist, obj)
-    assert m[10:50].all()
+def _centres(T):
+    """A moving trajectory (hand pivots/translates through space)."""
+    s = np.linspace(0, 1, T)[:, None]
+    return s * np.array([1.0, 0.5, 0.0]) + np.array([0.0, 0.0, 1.0])
 
 
-def test_independent_motion_rejected():
-    rng = np.random.default_rng(0)
-    wrist = rng.normal(0, 0.05, (60, 3)).cumsum(0)
-    obj = np.zeros((60, 3))                                # static object
-    m = stable_grasp_mask(wrist, obj)
-    assert not m[10:50].any()
+def test_contact_span_detected():
+    """Hand and object move TOGETHER within contact distance (2 cm offset <
+    3 cm) for the whole clip -> flagged over the contiguous span."""
+    T = 40
+    c = _centres(T)
+    hand = c[:, None, :] + _HOFF[None]                          # (T,4,3)
+    obj = c[:, None, :] + np.array([0.02, 0.0, 0.0]) + _OOFF[None]
+    m = grasp_mask_contact(hand, obj)
+    assert m.all()
+    assert grasp_spans(m) == (T, 1)
 
 
-def test_static_static_not_grasped():
-    """The hand-motion gate: `& (ms > v_rel_max)`. When BOTH the object and
-    the hand are perfectly still, relative velocity is ~0 (which passes the
-    vs<v_rel_max stability test), but the hand isn't moving — so ms<v_rel_max
-    must VETO it. This is the case that separates 'rigidly grasped AND moving'
-    from 'everything just sitting static on a table'. Without the ms gate this
-    would be flagged all-True; with it, all-False.
-
-    (Guards the gate directly: the two motion tests above still pass if the
-    `& (ms > v_rel_max)` clause is stripped — this one does not.)"""
-    wrist = np.zeros((60, 3))                              # hand perfectly still
-    obj = np.full((60, 3), [0.10, -0.05, 0.30])           # object still, offset
-    m = stable_grasp_mask(wrist, obj)
+def test_independent_far_apart_rejected():
+    """Object held 1 m away from the hand the whole clip -> never grasped."""
+    T = 40
+    c = _centres(T)
+    hand = c[:, None, :] + _HOFF[None]
+    obj = c[:, None, :] + np.array([1.0, 0.0, 0.0]) + _OOFF[None]
+    m = grasp_mask_contact(hand, obj)
     assert not m.any()
 
-    # also with a tiny constant offset of zero motion at a nonzero location for
-    # the hand: still no motion anywhere -> never grasped
-    wrist2 = np.full((60, 3), [1.0, 2.0, 3.0])
-    m2 = stable_grasp_mask(wrist2, wrist2 + np.array([0.02, 0.0, 0.0]))
-    assert not m2.any()
+
+def test_brief_contact_flicker_rejected():
+    """A 2-frame brush (< min_run=4) must NOT count as a grasp span."""
+    T = 40
+    c = _centres(T)
+    hand = c[:, None, :] + _HOFF[None]
+    obj = c[:, None, :] + np.array([1.0, 0.0, 0.0]) + _OOFF[None]   # far
+    obj = obj.copy()
+    for f in (20, 21):                                             # brief contact
+        obj[f] = c[f][None, :] + _OOFF
+    m = grasp_mask_contact(hand, obj)                             # min_run=4
+    assert not m.any()
+
+
+def test_min_run_boundary_span_kept():
+    """A contiguous run of exactly min_run (4) frames IS kept — the flicker
+    filter's boundary."""
+    T = 40
+    c = _centres(T)
+    hand = c[:, None, :] + _HOFF[None]
+    obj = c[:, None, :] + np.array([1.0, 0.0, 0.0]) + _OOFF[None]   # far
+    obj = obj.copy()
+    for f in range(20, 24):                                        # 4-frame grasp
+        obj[f] = c[f][None, :] + _OOFF
+    m = grasp_mask_contact(hand, obj)
+    assert m[20:24].all()
+    assert m.sum() == 4
+    assert grasp_spans(m) == (4, 1)
 
 
 def test_consecutive_grasp_pair_selection():

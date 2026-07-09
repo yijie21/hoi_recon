@@ -60,19 +60,37 @@ def run(ctx) -> Bundle:
     if icp_cfg and icp_cfg.get("enable", False) and not cfg.mock \
             and s0.meta.get("has_depth"):
         from ..object_icp import refine_object_poses
-        from ..grasp_segments import stable_grasp_mask
+        from ..grasp_segments import grasp_mask_contact, grasp_spans
         s1 = ctx.load("stage1_detect_track")
-        # T3: stable-grasp mask (wrist vs the stage-3 init object trajectory)
-        # + per-frame wrist orientation, feeding _joint_refine's grasp-rigidity
-        # term (config key w_grasp, default 0.0 = off). wrist_R comes straight
-        # from HaMeR's MANO global orientation (mano_global, [T,3,3]) — no need
-        # to build a wrist frame from joints. Defensive: skip if mano_global
-        # isn't present (e.g. model-free hand backend); the term stays off.
+        # T3 (v2): CONTACT-based stable-grasp mask + per-frame wrist orientation,
+        # feeding _joint_refine's grasp-rigidity term (config key w_grasp,
+        # default 0.0 = off). wrist_R = HaMeR's MANO global orientation
+        # (mano_global, [T,3,3]) — used directly (its frame-to-frame deltas were
+        # verified consistent with joint-derived deltas). Contact detection uses
+        # the per-frame min distance between hand vertices and the posed stage-3
+        # object surface — a RELATIVE hand-to-object quantity, so it is immune to
+        # the absolute-trajectory ICP jitter that broke the old velocity
+        # detector, and it includes in-hand rotation (no hand-speed gate).
+        # Computed only when the term is actually on (w_grasp>0), so the flag-off
+        # path stays byte-identical. Skipped if mano_global is absent.
         wrist_R = s2.get("mano_global")
         grasp_mask = None
-        if wrist_R is not None:
-            wrist_pos = s2["joints"][:, 0, :]
-            grasp_mask = stable_grasp_mask(wrist_pos, obj_poses[:, :3, 3])
+        w_grasp = float(icp_cfg.get("w_grasp", 0.0)) \
+            if hasattr(icp_cfg, "get") else 0.0
+        if wrist_R is not None and w_grasp > 0:
+            # posed object surface points per frame from the stage-3 init
+            # trajectory (subsample obj_verts to ~500 for the KD-tree query)
+            No = obj_verts.shape[0]
+            n_sub = min(500, No)
+            sub_idx = np.linspace(0, No - 1, n_sub).astype(int)
+            sub = obj_verts[sub_idx]
+            R = obj_poses[:, :3, :3]
+            t_ = obj_poses[:, :3, 3]
+            obj_pts_world = np.einsum("tij,nj->tni", R, sub) + t_[:, None, :]
+            grasp_mask = grasp_mask_contact(hand_verts, obj_pts_world)
+            n_gf, n_sp = grasp_spans(grasp_mask)
+            log(f"T3 contact grasp: {n_gf}/{T} frames in contact over "
+                f"{n_sp} contiguous span(s) (d_contact=3cm)")
         obj_poses, icp_stats = refine_object_poses(
             obj_verts, obj_faces, obj_poses, s0.assets["depth_dir"],
             s1.assets["masks_dir"], s0["intrinsics"], icp_cfg,
