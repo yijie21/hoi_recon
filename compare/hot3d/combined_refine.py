@@ -93,35 +93,58 @@ def resolve_flips(R, sym):
     return out
 
 
-def smooth_so3(R, w=40.0, iters=200, lr=0.2):
-    """Light second-difference smoothing on the rotation trajectory (tangent-space
-    gradient descent). Keeps the flip-resolved basin; removes jitter."""
-    T = len(R)
-    logs = np.stack([Rotation.from_matrix(r).as_rotvec() for r in R])
-    y = logs.copy()
-    for _ in range(iters):
-        d2 = np.zeros_like(y)
-        d2[1:-1] = y[2:] - 2 * y[1:-1] + y[:-2]
-        grad = (y - logs) + w * (np.roll(d2, 1, 0) - 2 * d2 + np.roll(d2, -1, 0)) * 0
-        # simpler: pull toward data + Laplacian smoothing
-        lap = np.zeros_like(y)
-        lap[1:-1] = y[2:] - 2 * y[1:-1] + y[:-2]
-        y = y + lr * (-(y - logs) / max(w, 1e-3) + lap)
-    return np.stack([Rotation.from_rotvec(v).as_matrix() for v in y])
+def _accel_smooth(X, lam):
+    """Data-anchored acceleration smoother, per column, closed form:
+    argmin_y ||y - X||^2 + lam * ||D2 y||^2  =>  (I + lam D2^T D2) y = X.
+    Strong data term (weight 1) keeps y AT the estimate; lam only penalises the
+    second difference (acceleration = jitter). Small lam -> y ~= X (no harm),
+    removing only the high-frequency wiggle. Endpoints are naturally free."""
+    T = len(X)
+    if lam <= 0 or T < 3:
+        return X.copy()
+    D2 = np.zeros((T - 2, T))
+    for i in range(T - 2):
+        D2[i, i], D2[i, i + 1], D2[i, i + 2] = 1.0, -2.0, 1.0
+    A = np.eye(T) + lam * (D2.T @ D2)
+    return np.linalg.solve(A, X)
+
+
+def smooth_traj(R, t, lam_rot=0.0, lam_trans=0.0):
+    """Jitter-only smoothing that does not move the trajectory off the estimate.
+
+    Translations: acceleration-smoothed directly (mm space).
+    Rotations: quaternions (hemisphere-consistent, so no sign flips), each of the
+    4 components acceleration-smoothed, then renormalised. The flip-resolved basin
+    is preserved because neighbours are already aligned. `lam_*` are the ONLY knobs
+    — swept to the largest value that leaves chamfer/rot_traj within noise."""
+    t_s = _accel_smooth(t, lam_trans) if lam_trans > 0 else t
+    if lam_rot <= 0:
+        return R.copy(), t_s
+    q = np.stack([Rotation.from_matrix(r).as_quat() for r in R])   # xyzw
+    for i in range(1, len(q)):                                     # hemisphere align
+        if np.dot(q[i], q[i - 1]) < 0:
+            q[i] = -q[i]
+    q_s = _accel_smooth(q, lam_rot)
+    q_s /= np.linalg.norm(q_s, axis=1, keepdims=True)
+    R_s = np.stack([Rotation.from_quat(qq).as_matrix() for qq in q_s])
+    return R_s, t_s
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("learned_run")
     ap.add_argument("out_run")
-    ap.add_argument("--w_smooth", type=float, default=40.0)
-    # Flip-resolution is the proven value (bottle rot p90 171->17, chamfer kept
-    # exactly since a symmetry op can't move the surface). The second-difference
-    # smoother distorted placement on non-flip clips (masher chamfer 12->25), so
-    # it is OFF by default; enable with --smooth only after reformulating it.
-    ap.add_argument("--smooth", action="store_true")
+    # Data-anchored acceleration smoothing (jitter removal). Defaults are the
+    # swept "no-harm" values; 0 disables. See the sweep in T4_RESULTS.md.
+    # Swept on the bench (T4_RESULTS.md): TRANSLATION acceleration-smoothing is a
+    # universal free win — jitter p90 drops 5-10x (66->7mm) at <1mm chamfer cost,
+    # rotation untouched. ROTATION smoothing is OFF by default: naively averaging
+    # the learned estimator's rotation flips DISTORTS the trajectory (masher
+    # chamfer 12->21, vase rot median 8.5->14). It needs a flip-aware SO(3)
+    # smoother, not this scalar knob — enable --lam_rot only with that in place.
+    ap.add_argument("--lam_rot", type=float, default=0.0)
+    ap.add_argument("--lam_trans", type=float, default=3.0)
     a = ap.parse_args()
-    a.no_smooth = not a.smooth
 
     z = np.load(f"{a.learned_run}/stage8_eval/pseudo_gt.npz")
     poses = z["obj_poses"].copy()
@@ -131,9 +154,11 @@ def main():
     sym = discover_symmetries(verts, faces)
     print(f"discovered {len(sym)} near-symmetries")
     R_res = resolve_flips(R, sym)
-    R_out = R_res if a.no_smooth else smooth_so3(R_res, w=a.w_smooth)
+    R_out, t_out = smooth_traj(R_res, poses[:, :3, 3],
+                               lam_rot=a.lam_rot, lam_trans=a.lam_trans)
 
     poses[:, :3, :3] = R_out
+    poses[:, :3, 3] = t_out
     # (translations are already smooth from the learned estimator; keep them)
     out_dir = f"{a.out_run}/stage8_eval"
     os.makedirs(out_dir, exist_ok=True)
