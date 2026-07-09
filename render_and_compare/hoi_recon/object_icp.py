@@ -24,6 +24,21 @@ import numpy as np
 
 from .logging_utils import log
 
+# Attitude-search spread gate (LAB chroma units): apply the chroma-scored
+# azimuth correction only when the hypotheses' chroma scores spread at least
+# this much — i.e. the object has distinctive texture that actually
+# discriminates orientation. Calibrated on the mesh-controlled 6-clip HOT3D
+# A/B (bottle spread 31 → helped; masher 10 / uniform objects 1-2 → hurt or
+# random). Below it the depth-ICP attitude is kept.
+SPREAD_MIN = 18.0
+
+
+def _attitude_apply(best_is_identity, spread, spread_min=SPREAD_MIN):
+    """Decide whether to apply the winning attitude hypothesis: it must be a
+    non-identity winner AND the chroma spread across hypotheses must clear
+    spread_min (distinctive texture actually discriminated orientation)."""
+    return (not best_is_identity) and (spread >= spread_min)
+
 
 def _umeyama_rigid(src, dst):
     """Rigid (R, t) minimizing ||R@src + t - dst|| (Kabsch)."""
@@ -560,27 +575,32 @@ def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
             chromas.append(ch)
             if sc < best_sc:
                 best_sc, best_G, best_ch, best_dp = sc, G, ch, dp
-        applied = not np.allclose(best_G, np.eye(3))
+        # Spread-gate: only trust (and apply) the winning rotation when the
+        # chroma scores across hypotheses actually SPREAD — i.e. the object has
+        # distinctive texture and one azimuth matches much better. Measured on
+        # the mesh-controlled 6-clip HOT3D A/B: spread cleanly separates the one
+        # trustworthy correction (bottle 31 LAB, chamfer 19.9->9.9mm) from
+        # near-random ones on uniform/mismatched objects (vase/mug/cube 1-2 LAB;
+        # masher 10 LAB actually hurt chamfer). Below SPREAD_MIN the depth-ICP
+        # attitude is kept (identity) — the search self-disables, never harms.
+        fin = np.array([c for c in chromas if np.isfinite(c)])
+        spread = float(fin.max() - fin.min()) if fin.size else 0.0
+        wants = not np.allclose(best_G, np.eye(3))
+        applied = _attitude_apply(not wants, spread)
         if applied:
             for i in range(T):
                 poses[i][:3, :3] = poses[i][:3, :3] @ best_G
-        # diagnostics: report the winner's sub-scores and whether chroma actually
-        # discriminated azimuth (flat chroma across hypotheses => signal-absent,
-        # distinct from weight-wrong).
-        fin = np.array([c for c in chromas if np.isfinite(c)])
-        spread_msg = ""
-        if fin.size:
-            spread = float(fin.max() - fin.min())
-            spread_msg = f", chroma spread={spread:.2f} LAB over {fin.size} hyps"
-            if spread < 3.0:
-                log("attitude search: chroma non-discriminative (spread "
-                    f"{spread:.2f} < 3 LAB) — azimuth signal absent, not "
-                    "weight-wrong")
+        spread_msg = (f", chroma spread={spread:.2f} LAB over {fin.size} hyps"
+                      if fin.size else "")
+        if wants and not applied:
+            verdict = f"identity (spread {spread:.2f} < {SPREAD_MIN} — non-discriminative)"
+        elif applied:
+            verdict = "correction applied"
+        else:
+            verdict = "identity (no change)"
         log(f"attitude search: {len(hyps)} hyps at anchor frame {a}, "
             f"best score={best_sc:.2f} (chroma={best_ch:.2f} LAB, "
-            f"depth={best_dp:.1f}mm), azimuth "
-            f"{'correction applied' if applied else 'identity (no change)'}"
-            + spread_msg)
+            f"depth={best_dp:.1f}mm), azimuth {verdict}" + spread_msg)
 
     s_axes = None
     if bool(get("joint_silhouette", False)):
