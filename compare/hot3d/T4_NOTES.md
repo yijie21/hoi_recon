@@ -19,6 +19,28 @@ for this degree of egocentric hand occlusion).
 | **BundleSDF** | CVPR'23 | RGB-D | github | original plan target; neural online track+recon; known-heavy deps |
 | **Point2Pose** | 2026 | RGB-D | arxiv 2604.10415 | 2D point-tracker + online TSDF, explicitly targets OCCLUSION recovery — most relevant to hand occlusion if pursued |
 
+## Feasibility investigation (2026-07-09, resumed at user request)
+
+Deep-investigated the 5 cloned repos + externals. **"One environment for all"
+is infeasible** — they span cu118/cu121/cu130 with conflicting custom CUDA
+extensions, none pre-built for sm_120. Per-method verdict:
+
+| method | I/O | Blackwell revival | verdict |
+|---|---|---|---|
+| **HORT** | mono single-image → object cloud (hand-relative, no metric scale) | needs consistent Blackwell torch+torchvision+pytorch3d (its model imports pytorch3d); reuse sam3d5090 stack | **FEASIBLE** (~2 h, qualitative) |
+| **ForeHOI** | HOI video → mesh + FoundationPose pose; built-in HOT3D shape-eval | reuse sam3d5090 (spconv/kaolin/pytorch3d ready) + rebuild FP `mycuda` for sm_120 + HF weight DL | **FEASIBLE** (~3 h; most comparable) |
+| **do-as-i-do** | RGB video → mesh + per-frame pose (maps to our format; reusable wild6 runner) | 6–8 custom CUDA extensions rebuilt for sm_120 (pytorch3d, kaolin, nvdiffrast, spconv, torch-scatter, diff-gaussian-raster + DROID-SLAM/lietorch) — none pre-built, incl. in rc5090 | HARD (multi-day) |
+| **HOLD** | video → per-video VolSDF optim (hours/clip) | kaolin has no Blackwell wheel; MPI-walled weights (HTTP 401); unbuilt COLMAP/SAM-Track preprocessing | infeasible-in-budget |
+| **EasyHOI** | single image only | 5 custom-CUDA packages + unbuilt LISA (26 GB) + affordance-diffusion env | infeasible-in-budget |
+| **FoundationPose** (standalone) | RGB-D + reference → per-frame pose | `mycpp`/`mycuda` CUDA sm_120 rebuild | HARD |
+
+Key resource that makes HORT/ForeHOI feasible: the **sam3d5090** env already has
+working Blackwell builds of torch 2.8+cu128, pytorch3d 0.7.8, spconv 2.3.8,
+kaolin 0.18.0, gsplat — the hard rebuild others need is already done there.
+Selected scope (user, 2026-07-09): **revive ForeHOI + HORT**, compare to
+icpjgr; skip HOLD/EasyHOI/do-as-i-do. Detailed per-method reports:
+`.superpowers/sdd/investigate-{forehoi,hort,hold-easyhoi,daid-fp}.md`.
+
 ## If resumed
 
 Integration pattern: follow the SAM-3D subprocess wiring
