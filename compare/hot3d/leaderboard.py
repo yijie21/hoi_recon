@@ -18,7 +18,7 @@ ABS_FLOOR = {"chamfer_mm": 2.0, "rot_traj_med": 5.0}  # measured SAM-3D redraw n
 
 
 def load_arm(arm):
-    p = f"{HERE}/batch_summary_{arm}.json"
+    p = f"{HERE}/scores/batch_summary_{arm}.json"
     rows = json.load(open(p))
     return {r["cat"]: r for r in rows if "error" not in r}
 
@@ -47,7 +47,7 @@ def gate(cand, best):
 
 
 def best_arm():
-    p = f"{HERE}/BEST_ARM"
+    p = f"{HERE}/scores/BEST_ARM"
     return open(p).read().strip() if os.path.exists(p) else "icpj"
 
 
@@ -55,17 +55,18 @@ def render():
     lines = ["# HOT3D 6-clip leaderboard", "",
              "| arm | clip | chamfer mm | centroid cm | rot_traj | p90 | rot_abs |",
              "|---|---|---|---|---|---|---|"]
-    for p in sorted(glob.glob(f"{HERE}/batch_summary_*.json")):
+    for p in sorted(glob.glob(f"{HERE}/scores/batch_summary_*.json")):
         arm = os.path.basename(p)[len("batch_summary_"):-len(".json")]
         tag = f"**{arm}**" if arm == best_arm() else arm
         for r in json.load(open(p)):
             if "error" in r:
                 lines.append(f"| {tag} | {r['cat']} | ERROR | | | | |")
                 continue
-            lines.append(f"| {tag} | {r['cat']} | {r['chamfer_mm']} | "
-                         f"{r['centroid_cm']} | {r['rot_traj_med']} | "
-                         f"{r['rot_traj_p90']} | {r['rot_abs_med']} |")
-    open(f"{HERE}/LEADERBOARD.md", "w").write("\n".join(lines) + "\n")
+            g = lambda k: r.get(k, "-")   # T4 method summaries omit rot_abs_med
+            lines.append(f"| {tag} | {r['cat']} | {g('chamfer_mm')} | "
+                         f"{g('centroid_cm')} | {g('rot_traj_med')} | "
+                         f"{g('rot_traj_p90')} | {g('rot_abs_med')} |")
+    open(f"{HERE}/scores/LEADERBOARD.md", "w").write("\n".join(lines) + "\n")
     print(f"rendered LEADERBOARD.md (best={best_arm()})")
 
 
@@ -77,6 +78,6 @@ if __name__ == "__main__":
         ok, why = gate(load_arm(sys.argv[2]), load_arm(best_arm()))
         print(("GATE PASS: " if ok else "GATE FAIL: ") + why)
         if ok:
-            open(f"{HERE}/BEST_ARM", "w").write(sys.argv[2])
+            open(f"{HERE}/scores/BEST_ARM", "w").write(sys.argv[2])
             render()
         sys.exit(0 if ok else 1)

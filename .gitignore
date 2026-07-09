@@ -40,3 +40,5 @@ wget-log
 !compare/hoi4d/overlays/*.mp4
 !compare/hot3d/*.mp4
 any6d/
+compare/hot3d/gt_pose_hot3d_*.json
+compare/hot3d/__pycache__/

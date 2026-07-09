@@ -108,7 +108,7 @@ def main():
     summary = []
 
     # Read best arm for cache promotion
-    best_arm_path = f"{HERE}/BEST_ARM"
+    best_arm_path = f"{HERE}/scores/BEST_ARM"
     best_arm = open(best_arm_path).read().strip() if os.path.exists(best_arm_path) else "icpj"
 
     for item in sel:
@@ -158,7 +158,7 @@ def main():
             if "falling back to depth-lift" in log_txt:
                 raise RuntimeError("INVALID: stage3 fell back to depth-lift")
             sh([PY, f"{HERE}/make_rc_vs_gt_overlay.py", inp, run,
-                f"{HERE}/rc_vs_gt_{cat}_{num}_{a.arm}.mp4"])
+                f"{HERE}/overlays/rc_vs_gt_{cat}_{num}_{a.arm}.mp4"])
             sh([PY, f"{HERE}/gt_pose_eval_hot3d.py", inp, run])
             r = json.load(open(f"{HERE}/gt_pose_hot3d_{os.path.basename(run)}.json"))
             v = list(r.values())[0]
@@ -172,7 +172,7 @@ def main():
         except (subprocess.CalledProcessError, RuntimeError) as e:
             print(f"FAIL {clip} {cat}: {e}", flush=True)
             summary.append({"clip": clip, "cat": cat, "error": str(e)})
-    json.dump(summary, open(f"{HERE}/batch_summary_{a.arm}.json", "w"), indent=1)
+    json.dump(summary, open(f"{HERE}/scores/batch_summary_{a.arm}.json", "w"), indent=1)
     print("\n== batch summary ==")
     for s in summary:
         print(json.dumps(s))

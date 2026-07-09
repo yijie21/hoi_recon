@@ -2,6 +2,30 @@
 
 | arm | clip | chamfer mm | centroid cm | rot_traj | p90 | rot_abs |
 |---|---|---|---|---|---|---|
+| any6d | bottle_bbq | 5.2 | 1.14 | 4.5 | 171.4 | 4.8 |
+| any6d | mug_white | 3.4 | 0.75 | 27.7 | 73.0 | 92.9 |
+| any6d | potato_masher | 12.0 | 3.81 | 77.4 | 172.8 | 74.0 |
+| any6d | puzzle_toy | 21.3 | 2.71 | 130.1 | 173.3 | 118.4 |
+| any6d | spatula_red | 9.6 | 5.61 | 30.1 | 153.4 | 21.5 |
+| any6d | vase | 6.4 | 1.29 | 8.5 | 93.1 | 7.6 |
+| combined | bottle_bbq | 5.6 | 1.16 | 7.0 | 16.7 | - |
+| combined | mug_white | 3.4 | 0.72 | 27.7 | 73.0 | - |
+| combined | potato_masher | 12.3 | 3.82 | 69.2 | 172.8 | - |
+| combined | puzzle_toy | 21.1 | 2.64 | 96.8 | 157.4 | - |
+| combined | spatula_red | 10.1 | 5.5 | 30.1 | 153.4 | - |
+| combined | vase | 6.5 | 1.3 | 8.5 | 93.1 | - |
+| forehoi | bottle_bbq | 392.3 | 42.71 | 53.5 | 79.6 | 86.3 |
+| forehoi | mug_white | 1147.2 | 128.64 | 55.1 | 126.7 | 115.7 |
+| forehoi | potato_masher | 703.6 | 78.53 | 55.8 | 144.2 | 121.9 |
+| forehoi | puzzle_toy | 390.9 | 44.16 | 89.6 | 132.9 | 132.7 |
+| forehoi | spatula_red | 178.4 | 25.0 | 45.9 | 107.3 | 67.2 |
+| forehoi | vase | 212.3 | 26.64 | 82.0 | 136.6 | 168.3 |
+| fp | bottle_bbq | 93.4 | 16.2 | 48.3 | 68.0 | - |
+| fp | mug_white | 2.3 | 0.58 | 2.7 | 8.2 | - |
+| fp | potato_masher | 597.6 | 67.37 | 35.7 | 88.7 | - |
+| fp | puzzle_toy | 18.9 | 3.49 | 74.0 | 155.8 | - |
+| fp | spatula_red | 11.2 | 8.19 | 28.0 | 52.2 | - |
+| fp | vase | 6.6 | 1.94 | 3.0 | 14.8 | - |
 | icpj | vase | 17.5 | 2.48 | 19.4 | 80.9 | 77.0 |
 | icpj | potato_masher | 18.9 | 5.73 | 24.1 | 42.5 | 37.3 |
 | icpj | bottle_bbq | 19.9 | 3.68 | 39.3 | 72.8 | 91.4 |
