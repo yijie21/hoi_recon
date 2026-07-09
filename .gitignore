@@ -39,3 +39,4 @@ wget-log
 !compare/hoi4d/gate2/sam3d_icp/*.npz
 !compare/hoi4d/overlays/*.mp4
 !compare/hot3d/*.mp4
+any6d/
