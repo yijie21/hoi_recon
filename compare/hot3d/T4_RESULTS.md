@@ -1,70 +1,100 @@
 # T4 — learned-method bake-off vs the pipeline (icpjgr) on HOT3D
 
-Both feasible learned methods were revived on Blackwell (sm_120) and run on
-the frozen 6-clip HOT3D bench against our best arm **icpjgr**. Scored by the
-same mocap-GT eval (`gt_pose_eval_hot3d.py`).
+Five learned methods were revived on Blackwell (sm_120) and compared against
+our best pipeline arm **icpjgr** on the frozen 6-clip HOT3D bench, scored by
+the same mocap-GT eval (`gt_pose_eval_hot3d.py`). All comparisons are
+**mesh-controlled**: every method registers/places the *same* SAM-3D stage-3
+mesh icpjgr used, so only the pose/placement method differs.
 
-## Environments revived (both by cloning `sam3d5090`, the box's working Blackwell stack)
+## The decisive split: does the method consume the calibrated RGB-D?
 
-- **hort5090** = clone sam3d5090 + HORT deps + rebuilt `pointnet2_ops`;
-  `CUDA_HOME=$CONDA_PREFIX` (the clone ships a full cu128 toolkit). Weights
-  local in `hort/weights/`.
-- **forehoi5090** = clone sam3d5090 + ForeHOI deps + nvdiffrast built against
-  the env's own 12.8 nvcc; FoundationPose `mycuda` not needed (off the
-  tracking path). Weights local at `/workspace/code/ForeHOI/` (17 GB).
+HOT3D (via our fisheye→pinhole rectification) gives calibrated intrinsics +
+metric depth. Whether a method *uses* that signal cleanly predicts the result.
 
-("One env for all" remains infeasible — HOLD/EasyHOI/do-as-i-do need
-cu118/cu121 + 5–8 custom CUDA extensions with no sm_120 wheels; see T4_NOTES.)
+### Group A — discard the calibrated depth → lose to icpjgr by 10–160×
 
-## Object placement / pose — chamfer median (mm) vs mocap GT
-
-| clip | **icpjgr** | HORT | ForeHOI |
+| clip (chamfer mm) | icpjgr | HORT | ForeHOI |
 |---|---|---|---|
-| vase | **17.7** | ✗ wrong object | 212 |
-| potato_masher | **18.8** | ✗ wrong object | 704 |
-| bottle_bbq | **9.9** | ✗ wrong object | 392 |
-| puzzle_toy | **18.5** | (plausible, unscaled) | 391 |
-| mug_white | **7.0** | (plausible, unscaled) | 1147 |
-| spatula_red | **21.2** | ✗ wrong object | 178 |
+| bottle_bbq | 9.9 | ✗ wrong object | 392 |
+| mug_white | 7.0 | (unscaled) | 1147 |
+| vase | 17.7 | ✗ wrong object | 212 |
+| spatula_red | 21.2 | ✗ wrong object | 178 |
+| potato_masher | 18.8 | ✗ wrong object | 704 |
+| puzzle_toy | 18.5 | (unscaled) | 391 |
 
-**icpjgr wins decisively on every clip (10–160×).**
+- **HORT** (mono single-image): no metric scale, no temporal consistency,
+  LangSAM grabbed the wrong object on 4/6. Overlays `hort_*.mp4`.
+- **ForeHOI** (feed-forward video): *canonical shape* is excellent (shape-ICP
+  bottle 2.7, masher 3.3, vase 7.4, spatula 16.3 mm) but its wild path
+  self-estimates depth with DepthAnything3 (off ~2.5× on egocentric HOT3D), so
+  a well-shaped object lands at the wrong 3D location. Shape good, placement
+  bad. Overlays `rc_vs_gt_hot3d_{vase,potato_masher}_forehoi.mp4`.
 
-## Why — and the fair nuance (shape vs placement)
+### Group B — consume the calibrated RGB-D → per-frame pose STRONGER than icpjgr
 
-The gap is not that the learned reconstructions are bad — it's that they
-**discard the calibrated depth + intrinsics the benchmark provides**, which is
-exactly the signal icpjgr exploits.
+| clip | icpjgr chamfer | **Any6D** | **FoundationPose (track)** | FP (register-each) |
+|---|---|---|---|---|
+| bottle_bbq | 9.9 | **5.2** | 93 (drift) | **3.2** |
+| mug_white | 7.0 | **3.4** | **2.3** (rot 2.7°!) | — |
+| vase | 17.7 | **6.4** | **6.6** (rot 3.0°!) | — |
+| spatula_red | 21.2 | **9.6** | **11.2** | 12.8 |
+| potato_masher | 18.8 | **12.0** | 598 (drift) | **8.6** |
+| puzzle_toy (cube) | 18.5 | 21.3 | 18.9 (tie) | — |
 
-- **HORT** (mono single-image): no metric scale at all (a WiLoR crop-camera
-  heuristic, ~7–9× off), no temporal consistency (independent per frame), and
-  its LangSAM text prompt grabbed the *wrong* object on 4/6 clips. Overlays
-  `compare/hot3d/hort_*.mp4`.
-- **ForeHOI** (feed-forward video recon): its *canonical shape* is genuinely
-  competitive — alignment-invariant shape-ICP is **bottle 2.7 mm, masher
-  3.3 mm, vase 7.4 mm, spatula 16.3 mm** — but its wild path self-estimates
-  depth with DepthAnything3, which is badly off on egocentric HOT3D (vase
-  frame-0: GT 1.03 m vs DA3 0.42 m), so a well-shaped object lands at the
-  wrong 3D location → huge chamfer. Overlays
-  `compare/hot3d/rc_vs_gt_hot3d_{vase,potato_masher}_forehoi.mp4`.
+Given the *same* mesh + depth + mask, both learned RGB-D render-and-compare
+estimators **beat icpjgr's registration on placement** — Any6D wins chamfer on
+5/6; FoundationPose wins decisively where its tracker holds (vase, mug: 3–8×
+lower chamfer *and* rotation error down to ~3°) and, in drift-free
+`register_each` mode, beats icpjgr on every clip it was run (bottle 9.9→3.2).
 
-| clip | ForeHOI canonical **shape** ICP (mm) | placement chamfer (mm) |
-|---|---|---|
-| bottle_bbq | 2.7 | 392 |
-| potato_masher | 3.3 | 704 |
-| vase | 7.4 | 212 |
-| spatula_red | 16.3 | 178 |
-| puzzle_toy | 48.2 (symmetric) | 391 |
-| mug_white | 222.9 (wrong object) | 1147 |
+## What icpjgr still wins: robustness / temporal consistency
 
-## Conclusion
+The learned per-frame estimators are more accurate but less *stable*:
 
-On a benchmark **with** calibrated RGB-D (HOT3D via our fisheye→pinhole
-rectification + rendered GT depth), the optimization-based pipeline that
-consumes that calibration (icpjgr) decisively beats the learned feed-forward
-methods at 3D placement/pose. The learned methods' strength is
-category-agnostic *shape* from a single view (ForeHOI's 2.7–16 mm), and they
-would be more competitive in an **uncalibrated monocular wild** setting where
-no metric depth is available — precisely the regime they were designed for.
-This validates the pipeline's architecture for this task: use a learned shape
-prior (SAM-3D) but ground pose in the calibrated depth via registration,
-rather than trusting monocular depth end-to-end.
+- **Any6D** registers each frame independently → symmetry-flip outliers:
+  rot_traj p90 **153–173°** on masher/cube/spatula (a minority of frames snap
+  to a 180°-equivalent pose, uncorrected). Median rotation is fine
+  (bottle 4.5°, vase 8.5°) but the tail is unusable as-is.
+- **FoundationPose** default `track` mode has no drift recovery → catastrophic
+  blow-ups on 2/6 (masher 598 mm, bottle 93 mm). `register_each` fixes it but
+  costs ~7–8× compute.
+- **icpjgr** never fails catastrophically: worst-clip chamfer 21 mm, rot_traj
+  p90 42–127° — its single-trajectory temporal optimization bounds every clip.
+- The **cube** is hard for everyone (24-fold symmetry + a thin-slab SAM-3D
+  mesh, extent [34,9,32] mm): Any6D 21.3, FP 18.9, icpjgr 18.5 — all ~tied,
+  all with terrible rotation, because a flat symmetric slab has almost no
+  observable per-frame orientation.
+
+## Conclusion (revised — the important finding)
+
+On a benchmark **with** calibrated RGB-D, a learned per-frame pose estimator
+(Any6D, FoundationPose) that consumes that depth is **more accurate than our
+hand-built depth+silhouette registration** — often 2–3× lower chamfer, and for
+FoundationPose far lower rotation error where it holds. The methods that lost
+badly (HORT, ForeHOI) did so only because they *discard* the metric depth, not
+because learned recon is weak.
+
+What our pipeline contributes is **robustness through temporal optimization**:
+it never drifts (unlike FP `track`) and never symmetry-flips (unlike Any6D
+per-frame), because it solves one smooth trajectory constrained across all
+frames. The learned estimators solve each frame in isolation and pay for it in
+the tail.
+
+**The best system combines them**: a learned per-frame RGB-D pose estimator
+(Any6D / FoundationPose `register`) for accuracy, wrapped in icpjgr's
+temporal-trajectory + symmetry-resolution layer for stability. That is the
+concrete next build this bake-off points to — swap stage-4's registration core
+for a learned per-frame estimator, keep the joint temporal/grasp/attitude
+optimization on top.
+
+## Environments (all revived by cloning `sam3d5090`, the box's working Blackwell stack)
+
+- **hort5090**: + HORT deps + rebuilt pointnet2_ops; `CUDA_HOME=$CONDA_PREFIX`.
+- **forehoi5090**: + ForeHOI deps + nvdiffrast (env's own cu128 nvcc); also runs
+  FoundationPose (`fp_track.py`; `mycpp` prebuilt for sm_120, `mycuda` not
+  needed) and Any6D (`run_any6d_hot3d.py`; `mycpp` cpu build + 258 MB weights).
+- "One env for all" remains infeasible for HOLD/EasyHOI/do-as-i-do (cu118/cu121
+  + 5–8 custom CUDA extensions with no sm_120 wheels) — see T4_NOTES.md.
+
+Per-method reports: `.superpowers/sdd/run-{hort,forehoi,foundationpose,any6d}.md`.
+Summaries: `compare/hot3d/batch_summary_{icpjgr,forehoi,any6d,fp}.json`.
