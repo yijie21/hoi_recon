@@ -63,5 +63,6 @@ object_icp:              # stage4: locked-scale rigid ICP object placement
   w_cov: 0.3
   w_rot_prior: 10.0
   w_temp: 2.5
-  w_photo: 0.5           # T2: in-loop LAB-chroma photometric term (0 = off)
-  attitude_search: 12    # T2: N azimuth hypotheses (all 3 axes) at anchor frame
+  w_photo: 4.0           # T2v2: in-loop LAB-chroma term (raw LAB units, no ÷10);
+                         #       dominant per-frame azimuth signal (0 = off)
+  attitude_search: 24    # T2v2: N azimuth hypotheses (8/axis + identity) at anchor

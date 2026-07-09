@@ -133,9 +133,17 @@ def _attitude_hypotheses(n_hyp):
 def _score_hypothesis(src_pts, tgt, dt, lab_img, K, R, t, s, src_cols, rng,
                       trim):
     """Cheap numpy score for one attitude hypothesis at a single anchor frame
-    (lower is better): trimmed depth RMS (mm) + mean out-of-mask distance
-    transform (px) of projected points + (if colors available) mean LAB-chroma
-    mismatch of in-mask points (÷10, matching the in-loop photometric scaling).
+    (lower is better). Returns (score, chroma_mean, depth_rms_mm).
+
+    The whole point of the attitude search is to resolve the AZIMUTH DOF that
+    depth + silhouette are blind to: a revolution / near-symmetric object has
+    ~equal depth RMS at every azimuth, so a depth-weighted score is flat in
+    azimuth and trivially returns identity. So WHEN colors are available the
+    score is CHROMA-DOMINANT — raw-LAB chroma mismatch decides azimuth, with
+    depth RMS (mm) + out-of-mask DT (px) kept only as a mild 0.1-weight validity
+    gate that still rejects a wildly mislocated hypothesis. With NO colors we
+    fall back to the depth-dominant geometric score (unchanged behaviour).
+    `chroma_mean` is np.nan when colors are unavailable / no in-mask points.
 
     `dt` is the pre-computed full-res out-of-mask distance transform and
     `lab_img` the pre-computed full-res LAB image (float32) or None — both
@@ -151,10 +159,10 @@ def _score_hypothesis(src_pts, tgt, dt, lab_img, K, R, t, s, src_cols, rng,
     n = len(src_s)
     idx = rng.choice(n, min(2000, n), replace=False)
     Xc = src_s[idx] @ R.T + t                       # posed points, camera frame
-    # (a) trimmed depth RMS: nearest posed point to each target point
+    # (a) trimmed depth RMS (mm): nearest posed point to each target point
     d, _ = cKDTree(Xc).query(tgt, workers=-1)
     keep = d <= np.quantile(d, trim)
-    score = float(np.sqrt(np.mean(d[keep] ** 2)) * 1000.0)
+    depth_rms = float(np.sqrt(np.mean(d[keep] ** 2)) * 1000.0)
     # image-space terms on a <=500 subset of the posed points
     pj = np.arange(len(Xc)) if len(Xc) <= 500 \
         else rng.choice(len(Xc), 500, replace=False)
@@ -164,8 +172,9 @@ def _score_hypothesis(src_pts, tgt, dt, lab_img, K, R, t, s, src_cols, rng,
     ui = np.clip(np.round(Xp[:, 0] / z * fx + cx).astype(int), 0, W - 1)
     vi = np.clip(np.round(Xp[:, 1] / z * fy + cy).astype(int), 0, H - 1)
     dt_pt = dt[vi, ui]
-    score += float(dt_pt.mean())
-    # (c) optional LAB-chroma mismatch of in-mask projected points
+    dt_mean = float(dt_pt.mean())
+    # (c) LAB-chroma mismatch of in-mask projected points, in RAW LAB units
+    chroma_mean = np.nan
     if lab_img is not None and src_cols is not None:
         inmask = dt_pt < 1.0
         if inmask.any():
@@ -175,8 +184,14 @@ def _score_hypothesis(src_pts, tgt, dt, lab_img, K, R, t, s, src_cols, rng,
             ia = lab_img[vi, ui, 1:] - 128.0
             pa = lab_pts[:, 1:] - 128.0
             chroma = np.sqrt(((ia - pa) ** 2).sum(1))
-            score += float(chroma[inmask].mean()) / 10.0
-    return score
+            chroma_mean = float(chroma[inmask].mean())
+    if np.isfinite(chroma_mean):
+        # chroma-dominant: azimuth decided by color; depth+DT only gate position
+        score = chroma_mean + 0.1 * depth_rms + 0.1 * dt_mean
+    else:
+        # geometry-only fallback (no colors, or no in-mask points)
+        score = depth_rms + dt_mean
+    return score, chroma_mean, depth_rms
 
 
 def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
@@ -354,15 +369,17 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
                 + ((Rv[2:] - 2 * Rv[1:-1] + Rv[:-2]) ** 2).sum((1, 2)).mean()
             loss = w_depth * loss_d + w_sil * loss_s + w_cov * loss_c \
                 + w_rot * loss_r + w_temp * loss_t
-            # photometric: chroma mismatch of IN-mask projected points. Sampled
-            # with the SAME `grid` as the DT term. Scaling rationale: LAB a,b are
-            # in ~[-128,127]; a chroma mismatch between a correctly- vs wrongly-
-            # placed color region is typically 20-60 units, so ÷10 maps it to
-            # ~2-6 — comparable to loss_d (mm smooth_l1 ~1-5) and loss_s (px
-            # ~1-3). At w_photo=0.5 the term is a meaningful azimuth nudge that
-            # does not dominate the geometric fit. Restricting to inliers
-            # (dt_s<2px) avoids penalizing points that overhang the mask (whose
-            # image color is background, not the object).
+            # photometric: mean L2 LAB-CHROMA mismatch of IN-mask projected
+            # points, sampled with the SAME `grid` as the DT term, in RAW LAB
+            # units (no ÷ scaling). Magnitude balance: after grid_sample on the
+            # downsampled planes + the inlier average, loss_p reads ~2-6 —
+            # comparable to loss_d (~4 mm) and loss_s (~2 px). The old ÷10 pinned
+            # it near ~0.2 so at w_photo=0.5 it was near-invisible; dropping the
+            # ÷10 and raising w_photo to 4.0 (config) makes photometry the
+            # DOMINANT per-frame azimuth signal, which is the point: depth +
+            # silhouette are ~blind to azimuth on revolution / near-symmetric
+            # objects. Restricting to inliers (dt_s<2px) avoids penalizing
+            # overhang points (whose image color is background, not the object).
             loss_p_val = 0.0
             if use_photo:
                 im_ab = F.grid_sample(labs_t[vf], grid, align_corners=False,
@@ -374,7 +391,7 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
                 # the image (baked colors / border padding). eps keeps the
                 # gradient finite while preserving L2-chroma semantics.
                 loss_p = (((d_ab ** 2).sum(-1) + 1e-8).sqrt() * inlier).sum() \
-                    / inlier.sum().clamp(min=1.0) / 10.0
+                    / inlier.sum().clamp(min=1.0)
                 loss = loss + w_photo * loss_p
                 loss_p_val = loss_p.item()
             loss.backward()
@@ -532,21 +549,38 @@ def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
             img_a = cv2.imread(os.path.join(frames_dir, f"{a:05d}.jpg"))
             if img_a is not None:
                 lab_a = cv2.cvtColor(img_a, cv2.COLOR_BGR2LAB).astype(np.float32)
+        best_ch = best_dp = np.nan
+        chromas = []
         for G in hyps:
             # fresh rng(0) per hypothesis -> identical point subset for a fair,
             # deterministic comparison
-            sc = _score_hypothesis(src_pts, targets[a], dt_a, lab_a, K, R_a @ G,
-                                   t_a, s, src_cols, np.random.default_rng(0),
-                                   trim)
+            sc, ch, dp = _score_hypothesis(
+                src_pts, targets[a], dt_a, lab_a, K, R_a @ G, t_a, s, src_cols,
+                np.random.default_rng(0), trim)
+            chromas.append(ch)
             if sc < best_sc:
-                best_sc, best_G = sc, G
+                best_sc, best_G, best_ch, best_dp = sc, G, ch, dp
         applied = not np.allclose(best_G, np.eye(3))
         if applied:
             for i in range(T):
                 poses[i][:3, :3] = poses[i][:3, :3] @ best_G
+        # diagnostics: report the winner's sub-scores and whether chroma actually
+        # discriminated azimuth (flat chroma across hypotheses => signal-absent,
+        # distinct from weight-wrong).
+        fin = np.array([c for c in chromas if np.isfinite(c)])
+        spread_msg = ""
+        if fin.size:
+            spread = float(fin.max() - fin.min())
+            spread_msg = f", chroma spread={spread:.2f} LAB over {fin.size} hyps"
+            if spread < 3.0:
+                log("attitude search: chroma non-discriminative (spread "
+                    f"{spread:.2f} < 3 LAB) — azimuth signal absent, not "
+                    "weight-wrong")
         log(f"attitude search: {len(hyps)} hyps at anchor frame {a}, "
-            f"best score={best_sc:.2f}, azimuth "
-            f"{'correction applied' if applied else 'identity (no change)'}")
+            f"best score={best_sc:.2f} (chroma={best_ch:.2f} LAB, "
+            f"depth={best_dp:.1f}mm), azimuth "
+            f"{'correction applied' if applied else 'identity (no change)'}"
+            + spread_msg)
 
     s_axes = None
     if bool(get("joint_silhouette", False)):
