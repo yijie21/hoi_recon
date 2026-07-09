@@ -40,6 +40,41 @@ def _attitude_apply(best_is_identity, spread, spread_min=SPREAD_MIN):
     return (not best_is_identity) and (spread >= spread_min)
 
 
+# T3 rigidity speed gate (degrees/frame of WRIST rotation): apply the
+# grasp-rigidity term ONLY on consecutive grasp-frame pairs where the wrist is
+# rotating FAST — genuine in-hand rotation, which is exactly where depth +
+# silhouette are azimuth-blind. Measured on vase: f100-150 in-hand rotation
+# runs 4.6-6.7 deg/fr (kept), while stable holds run 2.5-3.5 deg/fr (dropped).
+# The term was regressing full-clip median rot_traj by leaking HaMeR wrist
+# noise into those already-well-tracked stable-hold frames; gating removes that.
+ROT_GATE_DEG = 4.0
+
+
+def _rot_angle_deg(R):
+    """Geodesic rotation angle (deg) of a batch of rotation matrices
+    [...,3,3]: angle = arccos((trace(R)-1)/2), clamped for numerical safety."""
+    tr = np.trace(np.asarray(R, float), axis1=-2, axis2=-1)
+    c = np.clip((tr - 1.0) / 2.0, -1.0, 1.0)
+    return np.degrees(np.arccos(c))
+
+
+def _grasp_rigidity_pairs(grasp_mask, wrist_R, rot_gate_deg=ROT_GATE_DEG):
+    """Consecutive stable-grasp frame pairs, SPEED-GATED to fast wrist rotation.
+
+    A pair (i, i+1) is kept iff both frames are grasped (grasp_mask) AND the
+    wrist rotation delta dRw = wrist_R[i+1] @ wrist_R[i].T has geodesic angle
+    >= rot_gate_deg. Returns the numpy int array of surviving `i` indices (into
+    [0, T-1)). Pure/deterministic — the unit-testable core of the rigidity
+    term's frame selection."""
+    gm = np.asarray(grasp_mask, bool)
+    gi = np.where(gm[:-1] & gm[1:])[0]              # consecutive grasp pairs
+    if len(gi) == 0:
+        return gi
+    Rw = np.asarray(wrist_R, float)
+    dRw = Rw[gi + 1] @ np.swapaxes(Rw[gi], -1, -2)  # wrist rotation deltas
+    return gi[_rot_angle_deg(dRw) >= rot_gate_deg]
+
+
 def _umeyama_rigid(src, dst):
     """Rigid (R, t) minimizing ||R@src + t - dst|| (Kabsch)."""
     mu_s, mu_d = src.mean(0), dst.mean(0)
@@ -229,12 +264,16 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
     naturally comparable here (~1.1 mm/px at 1.5 m), so unit weights balance.
 
     (c) T3 grasp-rigidity prior: on stable-grasp frame pairs (grasp_mask,
-    from hoi_recon.grasp_segments.stable_grasp_mask) the object's rotation
+    from hoi_recon.grasp_segments.grasp_mask_contact) the object's rotation
     delta between consecutive frames is pulled toward the wrist's rotation
     delta (wrist_R, per-frame MANO global orientation) — the co-rotation
     signal that resolves azimuth on symmetric objects while firmly grasped,
     which depth+silhouette alone cannot see. Off unless w_grasp>0 AND
-    grasp_mask has >=3 True frames (config key w_grasp, default 0.0).
+    grasp_mask has >=3 True frames (config key w_grasp, default 0.0). The
+    pairs are SPEED-GATED (_grasp_rigidity_pairs, ROT_GATE_DEG deg/fr): only
+    fast-wrist-rotation pairs are kept, so the term acts where depth is
+    azimuth-blind and leaves the slow stable-hold frames (already well
+    tracked) untouched — needs >=2 surviving pairs to engage.
 
     Returns (poses[T,4,4], s_axes[3], resid[T])."""
     import cv2
@@ -306,9 +345,14 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
 
     gi_t = dRw = None
     if use_grasp:
-        gm = np.asarray(grasp_mask)
-        gi = np.where(gm[:-1] & gm[1:])[0]     # consecutive stable-grasp pairs
-        use_grasp = len(gi) > 0
+        gm = np.asarray(grasp_mask, bool)
+        n_pairs = int((gm[:-1] & gm[1:]).sum())          # all consecutive pairs
+        gi = _grasp_rigidity_pairs(grasp_mask, wrist_R)  # speed-gated subset
+        log(f"T3 rigidity: {len(gi)}/{n_pairs} grasp-pairs above "
+            f"{ROT_GATE_DEG}deg/fr wrist rotation")
+        # need >=2 fast-rotation pairs to engage; otherwise the clip has no
+        # in-hand rotation for the term to fix and it contributes nothing.
+        use_grasp = len(gi) >= 2
         if use_grasp:
             gi_t = tt(gi, torch.long)
             Rw = tt(wrist_R)
