@@ -210,7 +210,8 @@ def _score_hypothesis(src_pts, tgt, dt, lab_img, K, R, t, s, src_cols, rng,
 
 
 def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
-                  hand_valid, get, src_cols=None, frames_dir=None):
+                  hand_valid, get, src_cols=None, frames_dir=None,
+                  grasp_mask=None, wrist_R=None):
     """Joint depth + silhouette refinement (torch, GPU if available): per-frame
     rigid poses AND one global per-axis (anisotropic) canonical scale.
 
@@ -226,6 +227,14 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
     ALL frames, so lateral axes get their evidence from the silhouettes while
     the depth-observed axes keep the fused-cloud evidence. Pixels and mm are
     naturally comparable here (~1.1 mm/px at 1.5 m), so unit weights balance.
+
+    (c) T3 grasp-rigidity prior: on stable-grasp frame pairs (grasp_mask,
+    from hoi_recon.grasp_segments.stable_grasp_mask) the object's rotation
+    delta between consecutive frames is pulled toward the wrist's rotation
+    delta (wrist_R, per-frame MANO global orientation) — the co-rotation
+    signal that resolves azimuth on symmetric objects while firmly grasped,
+    which depth+silhouette alone cannot see. Off unless w_grasp>0 AND
+    grasp_mask has >=3 True frames (config key w_grasp, default 0.0).
 
     Returns (poses[T,4,4], s_axes[3], resid[T])."""
     import cv2
@@ -247,6 +256,14 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
     w_rot = float(get("w_rot_prior", 30.0))
     w_temp = float(get("w_temp", 0.5))
     s_lo, s_hi = 0.7, 1.4
+
+    # T3 grasp-rigidity prior: only active with w_grasp>0 AND a usable mask
+    # (>=3 True frames, so at least one consecutive pair can exist) — this is
+    # the flag-off purity contract: w_grasp=0 (default) or no/short grasp_mask
+    # must leave every other loss term byte-identical to before this feature.
+    w_grasp = float(get("w_grasp", 0.0))
+    use_grasp = bool(w_grasp > 0 and grasp_mask is not None
+                      and np.asarray(grasp_mask).sum() >= 3)
 
     T = len(poses0)
     valid = [i for i in range(T) if targets[i] is not None]
@@ -286,6 +303,17 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
 
     fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
     tt = lambda a, d=torch.float32: torch.as_tensor(a, dtype=d, device=dev)
+
+    gi_t = dRw = None
+    if use_grasp:
+        gm = np.asarray(grasp_mask)
+        gi = np.where(gm[:-1] & gm[1:])[0]     # consecutive stable-grasp pairs
+        use_grasp = len(gi) > 0
+        if use_grasp:
+            gi_t = tt(gi, torch.long)
+            Rw = tt(wrist_R)
+            dRw = Rw[gi_t + 1] @ Rw[gi_t].transpose(1, 2)   # wrist rotation deltas
+
     src = tt(src_pts)
     sil_idx = tt(rng.choice(len(src_pts), n_sil, replace=False), torch.long)
     R0 = tt(poses0[:, :3, :3])
@@ -409,6 +437,18 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
                     / inlier.sum().clamp(min=1.0)
                 loss = loss + w_photo * loss_p
                 loss_p_val = loss_p.item()
+            # T3 grasp-rigidity: while stably grasped, the object's rotation
+            # delta between consecutive frames should match the wrist's —
+            # supplies the per-frame azimuth signal depth+silhouette can't
+            # see on symmetric objects. 1600x brings the raw squared-Frobenius
+            # delta mismatch (typically ~1e-3-1e-2 for near-aligned deltas)
+            # into the same rough magnitude as the other terms (mm/px scale).
+            loss_g_val = 0.0
+            if use_grasp:
+                dRo = R[gi_t + 1] @ R[gi_t].transpose(1, 2)
+                loss_g = ((dRo - dRw) ** 2).sum((1, 2)).mean() * 1600.0
+                loss = loss + w_grasp * loss_g
+                loss_g_val = loss_g.item()
             loss.backward()
             opt.step()
             with torch.no_grad():
@@ -416,6 +456,7 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
         log(f"joint refine round {rnd + 1}/{rounds}: depth={loss_d.item():.2f}mm "
             f"sil={loss_s.item():.2f}px cov={loss_c.item():.2f}px "
             + (f"photo={loss_p_val:.2f} " if use_photo else "")
+            + (f"grasp={loss_g_val:.2f} " if use_grasp else "")
             + f"s_axes={np.round(ls.exp().detach().cpu().numpy(), 4)}")
 
     with torch.no_grad():
@@ -436,10 +477,14 @@ def _joint_refine(src_pts, targets, masks_dir, K, poses0, s0, hand_boxes,
 
 def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
                         opts=None, hand_boxes=None, hand_valid=None,
-                        obj_colors=None, frames_dir=None):
+                        obj_colors=None, frames_dir=None,
+                        grasp_mask=None, wrist_R=None):
     """Return (poses[T,4,4], stats) — per-frame rigid registration of the
     canonical mesh onto masked depth. Frame 0 initializes from poses0[0];
-    frame t from the t-1 result (poses0[t] as re-init after gaps). Frames
+    frame t from the t-1 result (poses0[t] as re-init after gaps). `grasp_mask`
+    [T] bool / `wrist_R` [T,3,3] (per-frame wrist global orientation) feed the
+    T3 grasp-rigidity term in `_joint_refine` (config key w_grasp, default
+    0.0 = off); both may be None when unavailable. Frames
     without usable depth keep their poses0. With `global_scale_refit`, the
     registration alternates with a shared-scale solve over all frames'
     pooled correspondences; stats["global_scale"] then carries the factor
@@ -606,7 +651,8 @@ def refine_object_poses(obj_verts, obj_faces, poses0, depth_dir, masks_dir, K,
     if bool(get("joint_silhouette", False)):
         poses, s_axes, resid = _joint_refine(
             src_pts, targets, masks_dir, K, poses, s, hand_boxes, hand_valid,
-            get, src_cols=src_cols, frames_dir=frames_dir)
+            get, src_cols=src_cols, frames_dir=frames_dir,
+            grasp_mask=grasp_mask, wrist_R=wrist_R)
         s = 1.0                 # the per-axis scale subsumes the isotropic one
 
     ok = ~np.isnan(resid)

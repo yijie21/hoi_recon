@@ -60,13 +60,26 @@ def run(ctx) -> Bundle:
     if icp_cfg and icp_cfg.get("enable", False) and not cfg.mock \
             and s0.meta.get("has_depth"):
         from ..object_icp import refine_object_poses
+        from ..grasp_segments import stable_grasp_mask
         s1 = ctx.load("stage1_detect_track")
+        # T3: stable-grasp mask (wrist vs the stage-3 init object trajectory)
+        # + per-frame wrist orientation, feeding _joint_refine's grasp-rigidity
+        # term (config key w_grasp, default 0.0 = off). wrist_R comes straight
+        # from HaMeR's MANO global orientation (mano_global, [T,3,3]) — no need
+        # to build a wrist frame from joints. Defensive: skip if mano_global
+        # isn't present (e.g. model-free hand backend); the term stays off.
+        wrist_R = s2.get("mano_global")
+        grasp_mask = None
+        if wrist_R is not None:
+            wrist_pos = s2["joints"][:, 0, :]
+            grasp_mask = stable_grasp_mask(wrist_pos, obj_poses[:, :3, 3])
         obj_poses, icp_stats = refine_object_poses(
             obj_verts, obj_faces, obj_poses, s0.assets["depth_dir"],
             s1.assets["masks_dir"], s0["intrinsics"], icp_cfg,
             hand_boxes=s1.get("hand_boxes"), hand_valid=s1.get("hand_valid"),
             obj_colors=s3.get("colors"),          # None for depth-lift fallback
-            frames_dir=s0.assets.get("frames_dir"))
+            frames_dir=s0.assets.get("frames_dir"),
+            grasp_mask=grasp_mask, wrist_R=wrist_R)
         s_icp = icp_stats.get("global_scale", 1.0)
         s_axes = icp_stats.get("global_scale_axes")
         if s_axes is not None:              # anisotropic (joint silhouette)
