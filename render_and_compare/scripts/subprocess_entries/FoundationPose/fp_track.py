@@ -51,7 +51,10 @@ def main():
     logging.getLogger().setLevel(logging.WARNING)
 
     mesh = trimesh.load(a.mesh, process=False)
-    K = np.load(a.K).astype(np.float64)
+    # NOTE: must be float32 -- FoundationPose's compute_crop_window_tf_batch does
+    # `torch.as_tensor(K) @ pts.float()` with no cast, so a float64 K raises
+    # "expected mat1 and mat2 to have the same dtype, but got: double != float".
+    K = np.load(a.K).astype(np.float32)
     frames = sorted(glob.glob(os.path.join(a.frames_dir, "*.jpg")))
     T = len(frames)
 
