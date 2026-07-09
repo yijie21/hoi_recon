@@ -167,21 +167,100 @@ measured: icpj vs icpj3). Pixels and mm are naturally comparable at this
 camera (~1.1 mm/px), so unit-ish weights balance (w_sil 1, w_cov 0.3,
 w_rot_prior 10, w_temp 2.5).
 
+## HOT3D improvement campaign (2026-07-09) — 3 gate-passing tiers
+
+A subagent-driven campaign (spec + plan under `docs/superpowers/`) improved
+the pipeline against the frozen 6-clip HOT3D bench with a lexicographic
+acceptance gate (`compare/hot3d/leaderboard.py`: worst-clip chamfer, then
+mean rot_traj; +2 mm / +5° noise floors; every arm mesh-controlled by
+reusing the incumbent's stage 0–3 so SAM-3D redraw noise can't masquerade as
+signal). Arms stack: **icpj → icpjs (T1) → icpjp (T2) → icpjgr (T3)**.
+
+Headline (baseline icpj → best icpjgr, mesh-controlled vs mocap GT):
+
+| metric | icpj | icpjgr |
+|---|---|---|
+| worst-clip chamfer | 158.8 mm | **21.2 mm** |
+| mean chamfer | 49.1 mm | **15.5 mm** (3.2×) |
+| mean rot_traj (med) | 36.1° | 36.3° (flat) |
+| mean rot_traj (p90) | — | −2° (T3 tail) |
+
+The campaign's real win is **surface accuracy + eliminating catastrophic
+failures**; rotation *median* is near a floor set by the cube (24-fold
+symmetric AND SAM-3D generates a wrong sticker layout → no geometry or
+texture signal exists — a hard limit no method here can pass).
+
+**T1 — hand-aware segmentation (icpjs, the big win).** The two catastrophic
+clips were both stage-1 SAM2 failures on hand-held objects: the mug mask
+absorbed the forearm (→ 25 cm mug-with-arm mesh, chamfer 60.7 mm), the
+spatula mask leaked onto the table (→ 80 cm mesh, 158.8 mm). Root cause the
+metrics hid: the frozen benchmark prompt pixel can land ON the occluding
+hand (the tilted mug's GT centroid projects onto the fingers). Fix
+(`mask_qa.py` + `real_perception.py::_run_sam2_multi_hypothesis`): track
+hands as their own SAM2 objects and subtract them; prompt K≤5 candidate
+clicks (original + offsets, vetoed against the frame-0 hand mask); score each
+track by temporal-IoU − hand-overlap − area-jump − border-fraction and select
+the best; **minimal-intervention rule** — if the original click's track is
+already healthy (hand-overlap <0.35, border <0.5) keep the plain mask
+untouched (never hurt a clean clip); **vanilla fallback** when all candidates
+are bad (cube enclosed by both hands). Result: mug 60.7→7.0, spatula
+158.8→20.5, zero regressions.
+
+**T2 — chroma-scored anchor attitude search (icpjp).** N azimuth hypotheses
+about all 3 canonical axes at the anchor frame, scored *chroma-dominant*
+(depth is azimuth-blind for symmetric objects, so a depth-weighted score
+trivially returns identity). **Spread-gated at 18 LAB**: apply the correction
+only when the hypotheses' chroma scores spread enough that distinctive
+texture actually discriminated orientation — calibrated on the mesh-
+controlled A/B where spread cleanly separated the one real win (bottle 31 LAB
+→ chamfer 19.9→9.9, centroid 3.68→1.66) from near-random corrections
+(uniform vase/mug/cube 1–2 LAB; masher 10 LAB *hurt*). Self-disables
+elsewhere → the bottle improves, five clips stay at baseline. Generalizes to
+any labeled bottle/can/box. Hard limit: needs a mesh whose texture matches
+reality (fails on the cube's fabricated stickers). In-loop photometric term
+built but left off (w_photo=0) — it distorted the per-axis scale and added
+nothing over the one-time pick.
+
+**T3 — speed-gated grasp-rigidity (icpjgr, the marginal win).** During
+stable grasps the object co-rotates with the wrist, which carries the azimuth
+signal symmetric geometry hides. Detection had to be **contact-based** (min
+hand–object distance <3 cm), not velocity-based — ICP jitter swamps relative
+velocity and a translational speed gate excludes in-hand *rotation* (the
+target). The rigidity term (‖dR_obj − dR_wrist‖² over consecutive grasp
+pairs, wrist from `mano_global`; deltas verified frame-consistent) is
+**speed-gated to ≥4°/frame wrist rotation** so it only acts where depth is
+azimuth-blind — applying it everywhere leaked HaMeR wrist noise into
+well-tracked frames and regressed the median. Net: mean rot_traj med
+36.5→36.3, **p90 74.9→72.9** (broad tail improvement), spatula 31.3→29.4;
+inert where there's no fast rotation. Small but real.
+
+**T4 — learned bake-off: deferred** (`compare/hot3d/T4_NOTES.md`). Literature
+pass done (FoundationPose, Any6D, 6DOPE-GS, Point2Pose); not integrated —
+multi-hour Blackwell sm_120 env builds for a different problem shape and
+heavy hand occlusion, low expected marginal value over the current pipeline.
+
+Recurring lesson (fourth dataset/convention trap of the project): **the gate
+metric doesn't capture everything.** T2's win is in chamfer/centroid, T3's in
+the rotation *tail* — both under-credited by a worst-chamfer/median-rot_traj
+gate. And three of this campaign's key bugs (prompt-on-hand, mask leak, the
+cube's fabricated texture) were caught by *rendering and eyeballing*, not by
+metrics — same as the HOI4D bbox-center, fabricated-MANO_LEFT, and
+display-vs-eval-model traps before them.
+
 ## Next build
 
-**Anchor-frame attitude search** — the GT eval says per-frame tracking is
-already decent (13° med) but the whole trajectory is rotated wrongly as a
-block by the stage-3 anchor init that `rotation: init` and the joint prior
-faithfully preserve. Fix at the source: N rotation hypotheses at the anchor
-frame (icosahedral × azimuth grid, or 4-azimuth minimum), each scored by the
-held-out photometric term (`sam3d_icp/photometric_check.py` machinery) plus
-depth+silhouette, winner initializes the pipeline. After that, in
-expected-value order: (2) hand side — HaWoR/HaMeR anchors (hand-depth
-closure was only 0.16 in the matrix); (3) photometric refinement on top of
-the joint track (b5 slice 2); (4) multi-clip validation — the RGB release
-and annotations for ALL clips are now in `/workspace/datasets/hoi4d`
-(depth-folder download still pending a downloader fix; kettle_N15 GT depth
-lives in the archived runs).
+The rotation frontier is what's left. In expected-value order: (1) **fix the
+constant anchor attitude on non-textured symmetric objects** — T2 only works
+when texture discriminates; a geometry-based multi-hypothesis anchor search
+(scored by depth+silhouette over a full SO(3) grid, accepting the one-
+symmetry-basin ambiguity) could help the masher/vase where shape is
+asymmetric enough. (2) **Better SAM-3D texture fidelity or a per-frame
+texture re-projection** so the photometric terms work on more objects (the
+cube needs the *real* sticker layout, unreachable from generation alone —
+would need multi-view texture baking from the clip itself). (3) **T4 learned
+bake-off** if a ceiling estimate is wanted (Any6D / Point2Pose first, per
+T4_NOTES). (4) Extend the bench beyond 6 clips using the HOT3D-HIT
+interaction timelines (302 Aria clips indexed) for statistical power.
 
 ## Dataset options beyond HOI4D (surveyed 2026-07-08)
 
