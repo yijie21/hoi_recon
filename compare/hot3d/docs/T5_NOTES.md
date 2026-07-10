@@ -160,6 +160,25 @@ exactly the symmetric / in-hand-rotated objects where icpjgr's rotation priors d
 work. So the 6-clip finding is confirmed at 2× scale across 4 object categories and 6
 sequences: the learned core is decisively **placement-superior**, at a **rotation** cost.
 
+## Overlays — objects + HANDS (the full-HOI visualization)
+
+The overlays now splat the **hand(s)** as well as the object, from two sources (they must
+differ):
+- **GT hands = UmeTrack** (mocap-grade, toolkit-native forward kinematics), NOT MANO —
+  HOT3D's MANO thetas are unreliable and the only `MANO_LEFT.pkl` on the box is a fabricated
+  right-hand mirror (reverses the left palm). `make_rc_input.py` already computes these in
+  the rectified pinhole frame to ray-cast depth but discards them, so `extract_gt_hands.py`
+  re-derives + saves them per clip (`<rc_input>/gt_hands.npz`: per-frame verts, camera frame).
+- **Estimated hands = the pipeline's HaMeR/HaWoR MANO hand**, grasp-optimized in stage 7 —
+  already stored (`hand_verts` in `pseudo_gt.npz`, `hand_faces` in `stage7`). Left-hand clips
+  are unreliable (fabricated MANO_LEFT; `stage2_hand.hand_side` flags them); the GT UmeTrack
+  hand stays correct either way. The pipeline reconstructs only the **interacting** hand,
+  whereas GT shows both — a faithful difference, not a bug.
+
+3-way HOI overlay: `make_best_overlay.py <cat> <num>` → `overlays/best/hoi3_<cat>_<num>.mp4`
+(GT | icpjgr | any6dp; object in the panel colour, hands in tan). Confirmed by eyeball: the
+UmeTrack GT hands overlay the real hands finger-perfect.
+
 ## Files
 - Item 1 (kept): `render_and_compare/hoi_recon/{object_any6d.py, temporal_pose.py}`,
   `stages/stage4_align.py` (learned branch), `joint_grasp.py` (`freeze_object`),
@@ -167,3 +186,5 @@ sequences: the learned core is decisively **placement-superior**, at a **rotatio
   `scores/batch_summary_any6dp.json`; overlays `overlays/rc_vs_gt_*_any6dp.mp4`.
 - Item 2 (removed after negative): `temporal_basin.py`, `rotation_prior.py`,
   `configs/real_any6d_rot.yaml`.
+- HOI overlays: `extract_gt_hands.py` (GT UmeTrack hand extractor), `make_best_overlay.py`
+  (3-way object + hand overlay).
