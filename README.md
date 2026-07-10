@@ -11,7 +11,7 @@ truth on HOT3D.
 | If you want… | Read |
 |---|---|
 | The whole story + all-method comparison + lessons | **[`compare/hot3d/README.md`](compare/hot3d/README.md)** (overall summary) and [`compare/hot3d/docs/REFLECTION.md`](compare/hot3d/docs/REFLECTION.md) (full journey) |
-| The current best pipeline recipe + campaign log | **[`BEST_STRATEGY.md`](BEST_STRATEGY.md)** |
+| The current best strategy: full workflow + what's left | **[`BEST_STRATEGY.md`](BEST_STRATEGY.md)** |
 | The head-to-head numbers | [`compare/hot3d/scores/LEADERBOARD.md`](compare/hot3d/scores/LEADERBOARD.md), [`compare/hot3d/docs/T4_RESULTS.md`](compare/hot3d/docs/T4_RESULTS.md) |
 | To run the pipeline | [`render_and_compare/README.md`](render_and_compare/README.md) + [`RUN_REAL.md`](render_and_compare/RUN_REAL.md) |
 
@@ -61,7 +61,7 @@ feasibility matrix and Blackwell recipes ("one env for all" is infeasible).
 
 | File | What |
 |---|---|
-| [`BEST_STRATEGY.md`](BEST_STRATEGY.md) | Living strategy doc: the best pipeline recipe, the campaign log (T1–T3 + dataset survey), and the next-build queue. |
+| [`BEST_STRATEGY.md`](BEST_STRATEGY.md) | Concise strategy doc: the arc in brief, the full end-to-end workflow of today's best strategy (icpjgr + the combined-method frontier), the live numbers, and the ranked what's-left-to-improve. |
 | [`hoi.md`](hoi.md) | HOI paper reading list (the T4 candidate source). |
 | [`allinone.md`](allinone.md) | Paper-search results: HOI datasets with RGB-D + CAD + pose trajectories. |
 | [`docs/superpowers/`](docs/superpowers/) | The spec + implementation plan for the HOT3D improvement campaign. |

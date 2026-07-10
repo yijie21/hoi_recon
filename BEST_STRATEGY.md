@@ -1,380 +1,223 @@
-# Current best strategy for stable, aligned HOI reconstruction
+# Current best strategy — HOI object reconstruction
 
-*(status 2026-07-07, after the kill tests, Gate-2, and the object-registration
-experiments; all numbers are kettle_N15 / HOI4D unless stated. Every claim
-below has a RESULTS.md with the harness that produced it.)*
+*Status 2026-07-10. This is the concise, current strategy doc: the whole arc in
+brief, the **full end-to-end workflow** of today's best strategy, the live numbers,
+and what's left to improve. The long-form journey (every tier, bug, and dead end)
+lives in [`compare/hot3d/docs/REFLECTION.md`](compare/hot3d/docs/REFLECTION.md);
+the head-to-head numbers in
+[`compare/hot3d/scores/LEADERBOARD.md`](compare/hot3d/scores/LEADERBOARD.md).*
 
-## The strategy in one paragraph
+---
 
-Take the best available **metric depth substrate** (GT sensor depth when it
-exists; VGGT-Omega otherwise — never per-frame monocular), segment the object
-with **validated video masks**, generate ONE canonical textured object mesh
-with **SAM-3D** (single anchor frame), and then place that mesh per frame by
-**registration against the depth cloud** — per-frame rigid ICP with the
-per-frame scale locked (unobservable), plus ONE global metric scale solved
-from the fused all-frames cloud (observable). Let the stage-7 grasp optimizer
-trust the registered object track and close the grasp by moving the hand.
-What this does NOT yet solve: object orientation and lateral extent are
-weakly observable from depth alone — they need the image-space (silhouette /
-photometric) term, which is the next build.
+## TL;DR
 
-## The runnable recipe
+**Goal:** recover an object's 6DoF trajectory + shape from an egocentric hand-object
+video, measured against mocap-grade GT.
+
+**Benchmark:** frozen 6-clip HOT3D bench, mocap-grade GT, *calibrated RGB-D* (HOT3D
+has no depth sensor, so depth is ray-cast from the posed CADs + hand meshes — this
+calibration turned out to be the decisive property of the whole project).
+
+**Two things carry the title "best" today, and they answer different questions:**
+
+| | **icpjgr** (best *integrated* pipeline) | **combined** (best *accuracy*) |
+|---|---|---|
+| what | one runnable command; hand-built depth+silhouette registration + grasp | Any6D per-frame RGB-D pose + icpjgr's temporal layer as a post-processor |
+| worst-clip chamfer | **21.2 mm** (never catastrophic) | 21.1 mm, but sustained rotation flips on masher/cube |
+| accuracy | 3.2× over baseline | lower chamfer on **4/6** clips (bottle 5.6, mug 3.4, vase 6.5, spatula 10.1) |
+| robustness | ✅ bounded worst case, no drift, no flips | ⚠️ only fixes *isolated* symmetry flips |
+| status | ✅ accepted best arm, fully integrated | 🔬 prototype (post-processor), points the way |
+
+**The finding that reframes the project:** on calibrated RGB-D, a learned per-frame
+estimator that *consumes* the depth (Any6D, FoundationPose) is **more accurate** than
+the hand-built registration; the pipeline's real contribution is **temporal
+robustness** (it never drifts, never symmetry-flips). The winning recipe is the
+*combination* — a learned pose core inside the temporal optimizer.
+
+---
+
+## The full workflow (current best strategy, end to end)
+
+Input: egocentric/monocular RGB video (+ camera intrinsics; on HOT3D also the
+ray-cast GT depth). Output: per-frame object mesh + 6DoF pose trajectory
+(`stage8_eval/pseudo_gt.npz` = `{obj_verts, obj_faces, obj_poses[T,4,4]}`) + hand
+meshes. The pipeline runs as 9 cached stages (`render_and_compare/hoi_recon/stages/`),
+resumable per stage.
+
+**Stage 0 — Preprocess / camera** (`stage0_preprocess`).
+Rectify to a pinhole camera and extract frames. On HOT3D the adapter
+(`compare/hot3d/make_rc_input.py`) rectifies the Aria **fisheye624** stream onto a
+*virtual upright pinhole* (90° FOV, 1024²) via `cv2.remap`, and **ray-casts GT depth**
+(open3d `RaycastingScene`) from the posed eval GLBs + UmeTrack hand meshes into that
+camera as 16-bit mm PNGs → the calibrated RGB-D substrate (`--depth gt`,
+`RC_GT_DEPTH_DIR`). *Depth substrate is the single biggest lever: GT sensor depth
+when it exists, VGGT-Omega otherwise — never per-frame monocular (it breathes).*
+
+**Stage 1 — Hand-aware object segmentation** (`stage1_detect_track`, **T1 — the
+biggest win**). Track **both hands and the object** as separate SAM2 objects. Prompt
+the object with K≤5 candidate clicks (original + offsets), **veto** any that land on
+the frame-0 hand mask, **score** each resulting track by
+`temporal-IoU − hand-overlap − area-jump − border-fraction`, and pick the best.
+Two guardrails: *minimal-intervention* (if the original click's track is already
+healthy, leave the plain mask untouched — never hurt a clean clip) and *vanilla
+fallback* (object enclosed by both hands). Code: `hoi_recon/mask_qa.py` +
+`real_perception.py::_run_sam2_multi_hypothesis`, gated by
+`backend.hand_aware_seg`. *This upstream mask decides everything downstream — both
+of the original catastrophic failures were stage-1 mask errors (mug absorbed the
+forearm → 25 cm blob; spatula leaked onto the table → 80 cm mesh), because the frozen
+prompt pixel can land on the occluding hand.* → **mug 60.7→7.0, spatula 158.8→20.5 mm.**
+
+**Stage 2 — Hand mesh** (`stage2_hand`). HaMeR/HaWoR → per-frame MANO hands + wrist
+global rotation (`mano_global`). Feeds grasp contact and the T3 rigidity term.
+
+**Stage 3 — Canonical object mesh** (`stage3_object`). Pick the largest-mask anchor
+frame; run **SAM-3D** on the masked crop (subprocess in the `sam3d5090` env) → one
+canonical textured mesh, reused for every frame. The generated *shape* is already at
+the depth noise floor — do **not** invest in guided-diffusion shape refinement; the
+generated *proportions* are what need fixing (handled by per-axis scale in stage 4).
+*Every comparison is **mesh-controlled**: reuse the incumbent's stage 0–3 so SAM-3D's
+GPU nondeterminism can't masquerade as method signal.*
+
+**Stage 4 — Per-frame object pose (the core; two modes).**
+- **(a) Registration core — `icpjgr`, the integrated best.** `object_icp.py`:
+  per-frame trimmed (80%) rigid **ICP** of 20k mesh samples onto the masked, eroded,
+  backprojected depth cloud (sequential init; per-frame scale *locked* — a free
+  per-frame similarity is degenerate), then **ONE global metric + per-axis log-scale**
+  solved from the fused all-frames cloud, then a differentiable **joint depth +
+  silhouette** refinement (`_joint_refine`): trimmed depth correspondences (mm) +
+  distance-transform out-of-silhouette penalty (allowed region = object mask ∪ hand
+  boxes) + coverage + rotation prior + second-difference *trajectory* smoothness.
+  Plus two targeted priors: **T2 chroma attitude search** at the anchor (score N
+  azimuth hypotheses on LAB-chroma, **spread-gated at 18 LAB** so it only acts when
+  texture discriminates — fixes the bottle 19.9→9.9, self-disables elsewhere) and
+  **T3 speed-gated grasp-rigidity** (`‖dR_obj − dR_wrist‖²` over contact-detected
+  stable-grasp pairs, gated to ≥4°/frame wrist rotation — recovers azimuth during
+  fast in-hand rotation where depth is blind; broad p90 tail gain).
+  Config: `configs/real_forehoi_icp_joint_grasp.yaml`.
+- **(b) Learned core — `combined`, the accuracy frontier.** Replace the registration
+  with a **learned per-frame RGB-D estimator** (Any6D, render-and-compare, CVPR'25)
+  fed the *same* mesh + depth + mask — more accurate per frame, but per-frame
+  independent → snaps a minority of frames to a ~180° symmetry-equivalent pose. Then
+  apply the temporal layer as post-processing (`compare/hot3d/combined_refine.py`):
+  **symmetry-flip resolution** (discover the mesh's near-symmetry group; per frame
+  pick the symmetry-equivalent rotation temporally closest to its neighbours — fixes
+  the flip *without moving the surface*) + **data-anchored translation jitter
+  smoothing** (`argmin ‖y−x‖² + λ‖D²y‖²`, closed form, λ_trans=3 — a universal free
+  win: position jitter p90 66→7 mm at <1 mm chamfer cost). Rotation smoothing stays
+  **off** — the scalar smoother averages across residual flips and *harms*; it needs a
+  flip-aware SO(3) formulation.
+
+**Stages 5–7 — Coarse fit → rectify → grasp closure** (`stage5_coarse_fit`,
+`stage6_rectify`, `stage7_contact_optim`). The grasp optimizer (`joint_grasp.py`)
+**trusts the object track and moves the HAND** to close the grasp (`w_prior_obj: 200`)
+rather than dragging the registered object off its track.
+
+**Stage 8 — Eval** (`stage8_eval`). Writes `pseudo_gt.npz`; scored by
+`compare/hot3d/gt_pose_eval_hot3d.py` vs mocap GT (symmetric posed-surface **chamfer**
+mm, **centroid** cm, **rot_traj** deg after trajectory-optimal constant alignment,
+alignment-invariant **canonical-shape ICP**).
+
+---
+
+## Current numbers (mesh-controlled, vs mocap GT — chamfer mm / rot_traj p90 °)
+
+| clip | icpj (baseline) | **icpjgr** (best integrated) | combined (Any6D + temporal) |
+|---|---|---|---|
+| bottle_bbq | 19.9 / 72.8 | 9.9 / 72.9 | **5.6 / 16.7** |
+| mug_white | 60.7 / 49.9 | 7.0 / 76.5 | **3.4** / 73.0 |
+| vase | 17.5 / 80.9 | 17.7 / 75.7 | **6.5** / 93.1 |
+| spatula_red | 158.8 / 70.2 | 21.2 / 42.6 | **10.1** / 153.4 |
+| potato_masher | 18.9 / 42.5 | **18.8 / 42.3** | 12.3 / 172.8 ⚠ sustained flip |
+| puzzle_toy (cube) | 18.6 / 127.8 | 18.5 / 127.2 | 21.1 / 157.4 ⚠ 24-fold symmetric |
+
+icpj → icpjgr: **worst-clip chamfer 158.8→21.2 mm, mean 49.1→15.5 mm (3.2×)**;
+rotation median stays ~flat, floored by the cube (24-fold symmetric + SAM-3D generates
+wrong stickers → no geometry *or* texture signal exists). combined wins chamfer on
+4/6 but its rotation is only fixed where flips are *isolated* — masher (sustained
+wrong basin) and cube (true symmetry) still defeat it. Full table + the T4 learned
+bake-off (HORT / ForeHOI / FoundationPose / Any6D) in
+[`scores/LEADERBOARD.md`](compare/hot3d/scores/LEADERBOARD.md) and
+[`docs/T4_RESULTS.md`](compare/hot3d/docs/T4_RESULTS.md).
+
+---
+
+## What's still to improve (ranked by expected value)
+
+1. **Integrate the learned core *inside* the pipeline** (not as a post-processor).
+   Swap stage-4's registration for FoundationPose-register / Any6D and keep icpjgr's
+   temporal + grasp layer — the combined method done properly, so robustness and
+   accuracy are optimized jointly rather than stitched.
+2. **Flip-aware SO(3) rotation smoother + per-frame depth-anchored basin selection.**
+   The single missing piece behind the ⚠ rows: the masher's *sustained* wrong basin
+   and the residual flips that scalar rotation smoothing can't touch. This is what
+   would let rotation smoothing be turned on safely.
+3. **Constant anchor-attitude on non-textured symmetric objects.** T2 only works when
+   texture discriminates; a geometry-based multi-hypothesis SO(3) anchor search
+   (scored by depth+silhouette over a full grid, accepting the one-symmetry-basin
+   ambiguity) could pin the masher/vase where shape is asymmetric enough.
+4. **Better SAM-3D texture fidelity / per-frame texture re-projection.** So the
+   photometric + attitude terms work on more objects — the cube needs the *real*
+   sticker layout, unreachable from generation alone (would need multi-view texture
+   baking from the clip itself).
+5. **Hand-aware segmentation remains the highest-leverage upstream fix** for *any*
+   method — every method's ceiling is set by the stage-1 mask on hand-held objects.
+6. **Scale the bench beyond 6 clips** using the HOT3D-HIT interaction timelines
+   (302 Aria clips indexed) for statistical power on any future gain.
+
+---
+
+## Runnable recipe
 
 ```bash
-# env: rc5090 (torch 2.11+cu128); SAM-3D subprocess env: sam3d5090
-cd render_and_compare
-export RC_OBJECT_MASK_PATTERN="<clip>/masks/frame_{idx:06d}_masks/object.png"
-export RC_OBJECT_MASK_ERODE=5
-export RC_GT_DEPTH_DIR=<clip>/depth RC_GT_INTRINSICS=<clip>/intrin.npy   # or vggt_depth_mm
-/workspace/miniconda3/envs/rc5090/bin/python -m hoi_recon.cli \
-    --video <clip.mp4> --out runs/<name> --real \
-    --config configs/real_forehoi_icp.yaml --depth gt \
-    --object-prompt <x> <y>
+# envs: rc5090 (pipeline + eval), sam3d5090 (SAM-3D subprocess),
+#       forehoi5090 (Any6D / ForeHOI / FoundationPose), hort5090 (HORT)
+PY=/workspace/miniconda3/envs/rc5090/bin/python
+cd compare/hot3d
+
+# best integrated pipeline on the 6-clip bench (adapter -> pipeline -> overlay -> score)
+$PY run_batch.py selection.json --arm icpjgr --config \
+    configs/real_forehoi_icp_joint_grasp.yaml
+
+# accuracy frontier: learned per-frame pose, then the temporal layer (per clip)
+$PY run_any6d_hot3d.py <ABS rc_input> <ABS icpjgr_run> <ABS any6d_run>   # env forehoi5090
+$PY combined_refine.py <any6d_run> <combined_run>                        # flip-fix + jitter smooth
+$PY gt_pose_eval_hot3d.py <rc_input> <combined_run>                      # score vs GT
+$PY leaderboard.py render                                                # -> scores/LEADERBOARD.md
 ```
 
-## Components, with the functional code
+Single arm end to end without the batch driver: `python -m hoi_recon.cli --video
+rgb.mp4 --out <run> --real --config configs/real_forehoi_icp_joint_grasp.yaml
+--depth gt --object-prompt <x> <y>` (with `RC_GT_DEPTH_DIR` / `RC_GT_INTRINSICS` set).
 
-### 1. Depth substrate — the single biggest lever
+---
 
-- **GT injection**: `--depth gt` backend reads `RC_GT_DEPTH_DIR` (16-bit mm
-  PNGs, sorted-index matched) + `RC_GT_INTRINSICS` —
-  `render_and_compare/hoi_recon/backends/real_perception.py` (`_gt_geometry`).
-- **VGGT-Omega injection** (best GT-free substrate): densify once per clip
-  with `compare/hoi4d/gate2/densify_vggt_depth.py` (single forward over all
-  frames, uint16 mm PNGs), then feed through the same `gt` backend — see
-  `compare/hoi4d/gate2/run_rc_matrix.sh` for the exact wiring.
-- Evidence: 12-clip matrix, `compare/hoi4d/gate2/RC_MATRIX_RESULTS.md` —
-  MoGe→VGGT-Omega closes **53% of object-depth / 61% of object-jitter** of
-  the oracle (GT) gap with zero method changes. Per-frame mono depth (MoGe)
-  is what causes the depth breathing; the kill tests
-  (`compare/hoi4d/{kill_test,pivot_test}/RESULTS.md`) proved background
-  substrates and geometric anchors cannot repair it after the fact.
+## Reference & load-bearing caveats
 
-### 2. Object segmentation — inject validated masks
-
-- `RC_OBJECT_MASK_PATTERN` + `RC_OBJECT_MASK_ERODE` seam in
-  `real_perception.py` (`segment_object` → `_external_object_masks`): use
-  SAM2/SAM3-tracked masks you have verified, identically across conditions.
-  An unlucky auto point-prompt once segmented a 1.2k-px fragment (IoU 0.04)
-  and silently poisoned everything downstream.
-
-### 3. Canonical object mesh — SAM-3D, one anchor frame
-
-- Stage 3 (`hoi_recon/stages/stage3_object.py` → `run_object_sam3d` in
-  `real_perception.py`) picks the largest-mask frame and runs
-  `third_party/sam-3d-objects/sam3d_infer.py` (`--no-texture`) as a
-  subprocess in the **sam3d5090** env (`backend.sam3d_env`). Build recipe for
-  Blackwell/RTX-5090: `render_and_compare/scripts/subprocess_entries/
-  sam-3d-objects/BLACKWELL_ENV.md` (weights: gated `facebook/sam-3d-objects`,
-  download with `HF_HUB_DISABLE_XET=1`).
-- Route-B finding (`compare/hoi4d/gate2/sam3d_icp/route_b_deform.py`): the
-  generated *shape* is already at the depth noise floor (per-vertex
-  refinement moved ~0.1 mm) — do NOT invest in guided-diffusion shape
-  generation. The generated *proportions/scale* are what's wrong (see §5).
-
-### 4. Object placement — registration, not depth-lift (the core module)
-
-- **`render_and_compare/hoi_recon/object_icp.py`** — the heart of the
-  strategy. Hooked into stage 4 behind `cfg.object_icp`
-  (`hoi_recon/stages/stage4_align.py`), configured in
-  `configs/real_forehoi_icp.yaml`:
-  - `refine_object_poses()`: per-frame trimmed (80%) rigid ICP of 20k mesh
-    surface samples onto the masked, eroded, backprojected depth cloud;
-    sequential init (frame 0 from the stage-3 track).
-  - **Per-frame scale locked by design**: a free per-frame similarity fit is
-    degenerate — a 53% oversized kettle fits the visible front at unchanged
-    residual (`sam3d_icp_test.py`, `RESULTS.md`).
-  - `global_scale_refit: true` → `_solve_shared_scale()`: ONE metric scale
-    about the canonical origin from the fused all-frames cloud, poses frozen
-    during the solve, mild 0.95 trim, then re-register. (Per-frame centering
-    or tight trims delete the scale evidence — documented in the docstring.)
-  - `fg_band_m` (default 0.15): rejects mask pixels whose depth is >15 cm
-    off the per-frame median — real sensor depth bleeds background values
-    ~8% deep into even the eroded mask and inflates the scale solve.
-  - `rotation: free | init` — see §5, this is an open trade-off.
-- Why registration at all: depth-lift placement (the old default) cannot use
-  mesh quality — a *better* SAM-3D mesh made depth-lift *worse* (4.54 vs
-  2.95 cm MAE) while registration turned it into the best result.
-- Stage-7 companion (`configs/real_forehoi_icp.yaml → optim.joint`):
-  `w_prior_obj: 200, w_seat: 1` — the grasp optimizer
-  (`hoi_recon/joint_grasp.py`) must trust the registered object and move the
-  HAND to close the grasp; with default weights it dragged the object a
-  median 1.6 cm off the ICP track.
-
-### 5. Known limits (measured, not hypothetical)
-
-| limit | evidence | mitigation in code |
-|---|---|---|
-| Rotation weakly observable from top-down depth; trimming discards the disambiguating spout/handle points → ICP walks 33–97° from the image-based init | `sam3d_icp/RESULTS.md` (orientation section), `rc_ab_rotation_*.mp4` | joint refinement (`_joint_refine`): rotation starts at the image-based init, silhouette DT term supplies the image-space gradient, w_rot_prior=10 keeps it out of the symmetric basin |
-| SAM-3D mesh lateral proportions too wide (1.68× mask footprint) → no rigid pose satisfies depth AND silhouette; global isotropic scale refit amplifies it | `sam3d_icp/silhouette_check.py`, IoU table in RESULTS.md | per-axis scale in `_joint_refine` — found [1.088, 0.944, 1.109]: lateral axis shrunk, footprint 1.94×→1.36×, IoU 0.46→0.69 |
-| "GT" sensor depth is not pixel-perfect: boundary halo, ±20 px frame-to-frame depth↔RGB wobble, ~8% background contamination inside the eroded mask | measured in-session (RESULTS.md) | `fg_band_m` filter in `object_icp.py`; erosion; treat scale estimates from pre-filter runs (1.13–1.18) as upper bounds |
-| Depth metrics have a silhouette blind spot (only score covered mask pixels; overhang invisible) | `silhouette_check.py` | always render the reprojection overlays (`hoi_recon/viz/reproject.py`, auto-generated `*_reproj.mp4`) and run `silhouette_check.py` alongside `eval_pipeline_ab.py` |
-
-### 6. Scoreboard (kettle_N15, GT depth, stages 4–8 from identical caches)
-
-| arm | object placement | 3D fit med/p90 | vis MAE | bias | wiggle | silh. IoU | footprint |
-|---|---|---|---|---|---|---|---|
-| base | depth-lift, flat archived mesh | 9.9/22.4 mm | 2.95 cm | — | 1.59 cm | 0.51 | — |
-| icp | + rigid ICP | 4.8/6.5 mm | 1.03 cm | −1.03 | 0.65 cm | 0.65 | 1.11× |
-| icp2 | + regenerated SAM-3D mesh | 4.2/6.9 mm | 0.69 cm | −0.69 | 0.37 cm | 0.58 | 1.68× |
-| icp4 | + global scale refit (rot free) | **3.9/5.7 mm** | 0.73 cm | −0.73 | **0.36 cm** | 0.46 | 1.94× |
-| icp5 | rot locked to silhouette tracker | 10.1/10.8 mm | 1.18 cm | −1.17 | 0.75 cm | 0.59 | 1.67× |
-| **icpj3** | **joint depth+silhouette, per-axis scale** | 11.3/12.1 mm | **0.67 cm** | **−0.42** | 0.66 cm | **0.69** | **1.36×** |
-
-**GT-pose verdict (2026-07-08, HOI4D annotations + CAD now on disk at
-`/workspace/datasets/hoi4d`, evaluator `sam3d_icp/gt_pose_eval.py`)**: all
-arms carry a large CONSTANT attitude error (abs rotation 55–81°; after
-removing one constant offset the per-frame tracking error is only 13–19° —
-icpj3 best at 13.3°). The anchor-frame attitude initialization is the
-dominant unfixed error; depth-metric differences below ~1 cm are beneath the
-GT annotation's own noise floor (6–16 mm) and must not be used to rank arms.
-Chamfer vs GT (after the CAD bbox-centering convention fix — HOI4D poses
-the box center): icp2 21.3 / icp4 23.5 / icp5 23.9 / **icpj3 20.8 mm**;
-centroid 5.3–7.0 cm, icpj3 best on every GT metric. Full table + caveats in
-`sam3d_icp/RESULTS.md`.
-
-**icpj3 (config `real_forehoi_icp_joint.yaml`) is the current default arm**:
-best visible-surface accuracy, best (smallest) depth bias, best silhouette
-IoU and footprint, orientation kept from the image-based track. Read the two
-lagging columns correctly: icp4's 3.9 mm `fit` and 0.36 cm wiggle are earned
-with a 33–97°-wrong rotation exploiting the dome symmetry — `fit_mm` rewards
-that cheat, and its rigid-basin convergence is artificially stable. icpj3's
-remaining wiggle is data-driven (the ±20 px depth↔RGB wobble): w_temp 8
-over-smooths and gets worse; w_temp 2.5 is the optimum found.
-Per-axis scale found [1.088, 0.944, 1.109] — the silhouette SHRANK the wide
-lateral axis while depth grew the observed axes; the isotropic refit (1.146)
-could not express this and inflated the footprint instead.
-(icp6/icp7 — the fg-band reruns — were stopped mid-flight and removed;
-icpj/icpj2/icpj4 were tuning variants, also removed.)
-Eval code: `compare/hoi4d/gate2/sam3d_icp/{eval_pipeline_ab.py,
-silhouette_check.py}`; videos: `rc_ab*.mp4`, joint arm:
-`rc_ab_joint_{object,hoi}_reproj.mp4` in the same folder.
-
-## The joint registration (built 2026-07-08 — was "next build")
-
-`object_icp.py::_joint_refine`, enabled by `object_icp.joint_silhouette` in
-`configs/real_forehoi_icp_joint.yaml`. Torch (GPU), ~15 s for 75 frames on
-top of the ICP init. Optimizes per-frame rotation deltas + translations and
-ONE global per-axis log-scale against: (a) trimmed depth correspondences in
-mm, refreshed each round; (b) a distance-transform out-of-silhouette penalty,
-bilinearly sampled so it is differentiable, with allowed region = object
-mask ∪ valid hand boxes (the object legitimately projects behind the
-occluding hand); (c) a coverage term (visible mask pixels must be near a
-projected mesh point); (d) a small prior toward the image-based init
-rotations plus second-difference smoothness on the ABSOLUTE trajectory
-(the init rotations themselves jitter, so smoothing deltas alone fails —
-measured: icpj vs icpj3). Pixels and mm are naturally comparable at this
-camera (~1.1 mm/px), so unit-ish weights balance (w_sil 1, w_cov 0.3,
-w_rot_prior 10, w_temp 2.5).
-
-## HOT3D improvement campaign (2026-07-09) — 3 gate-passing tiers
-
-A subagent-driven campaign (spec + plan under `docs/superpowers/`) improved
-the pipeline against the frozen 6-clip HOT3D bench with a lexicographic
-acceptance gate (`compare/hot3d/leaderboard.py`: worst-clip chamfer, then
-mean rot_traj; +2 mm / +5° noise floors; every arm mesh-controlled by
-reusing the incumbent's stage 0–3 so SAM-3D redraw noise can't masquerade as
-signal). Arms stack: **icpj → icpjs (T1) → icpjp (T2) → icpjgr (T3)**.
-
-Headline (baseline icpj → best icpjgr, mesh-controlled vs mocap GT):
-
-| metric | icpj | icpjgr |
-|---|---|---|
-| worst-clip chamfer | 158.8 mm | **21.2 mm** |
-| mean chamfer | 49.1 mm | **15.5 mm** (3.2×) |
-| mean rot_traj (med) | 36.1° | 36.3° (flat) |
-| mean rot_traj (p90) | — | −2° (T3 tail) |
-
-The campaign's real win is **surface accuracy + eliminating catastrophic
-failures**; rotation *median* is near a floor set by the cube (24-fold
-symmetric AND SAM-3D generates a wrong sticker layout → no geometry or
-texture signal exists — a hard limit no method here can pass).
-
-**T1 — hand-aware segmentation (icpjs, the big win).** The two catastrophic
-clips were both stage-1 SAM2 failures on hand-held objects: the mug mask
-absorbed the forearm (→ 25 cm mug-with-arm mesh, chamfer 60.7 mm), the
-spatula mask leaked onto the table (→ 80 cm mesh, 158.8 mm). Root cause the
-metrics hid: the frozen benchmark prompt pixel can land ON the occluding
-hand (the tilted mug's GT centroid projects onto the fingers). Fix
-(`mask_qa.py` + `real_perception.py::_run_sam2_multi_hypothesis`): track
-hands as their own SAM2 objects and subtract them; prompt K≤5 candidate
-clicks (original + offsets, vetoed against the frame-0 hand mask); score each
-track by temporal-IoU − hand-overlap − area-jump − border-fraction and select
-the best; **minimal-intervention rule** — if the original click's track is
-already healthy (hand-overlap <0.35, border <0.5) keep the plain mask
-untouched (never hurt a clean clip); **vanilla fallback** when all candidates
-are bad (cube enclosed by both hands). Result: mug 60.7→7.0, spatula
-158.8→20.5, zero regressions.
-
-**T2 — chroma-scored anchor attitude search (icpjp).** N azimuth hypotheses
-about all 3 canonical axes at the anchor frame, scored *chroma-dominant*
-(depth is azimuth-blind for symmetric objects, so a depth-weighted score
-trivially returns identity). **Spread-gated at 18 LAB**: apply the correction
-only when the hypotheses' chroma scores spread enough that distinctive
-texture actually discriminated orientation — calibrated on the mesh-
-controlled A/B where spread cleanly separated the one real win (bottle 31 LAB
-→ chamfer 19.9→9.9, centroid 3.68→1.66) from near-random corrections
-(uniform vase/mug/cube 1–2 LAB; masher 10 LAB *hurt*). Self-disables
-elsewhere → the bottle improves, five clips stay at baseline. Generalizes to
-any labeled bottle/can/box. Hard limit: needs a mesh whose texture matches
-reality (fails on the cube's fabricated stickers). In-loop photometric term
-built but left off (w_photo=0) — it distorted the per-axis scale and added
-nothing over the one-time pick.
-
-**T3 — speed-gated grasp-rigidity (icpjgr, the marginal win).** During
-stable grasps the object co-rotates with the wrist, which carries the azimuth
-signal symmetric geometry hides. Detection had to be **contact-based** (min
-hand–object distance <3 cm), not velocity-based — ICP jitter swamps relative
-velocity and a translational speed gate excludes in-hand *rotation* (the
-target). The rigidity term (‖dR_obj − dR_wrist‖² over consecutive grasp
-pairs, wrist from `mano_global`; deltas verified frame-consistent) is
-**speed-gated to ≥4°/frame wrist rotation** so it only acts where depth is
-azimuth-blind — applying it everywhere leaked HaMeR wrist noise into
-well-tracked frames and regressed the median. Net: mean rot_traj med
-36.5→36.3, **p90 74.9→72.9** (broad tail improvement), spatula 31.3→29.4;
-inert where there's no fast rotation. Small but real.
-
-**T4 — learned bake-off: deferred** (`compare/hot3d/T4_NOTES.md`). Literature
-pass done (FoundationPose, Any6D, 6DOPE-GS, Point2Pose); not integrated —
-multi-hour Blackwell sm_120 env builds for a different problem shape and
-heavy hand occlusion, low expected marginal value over the current pipeline.
-
-Recurring lesson (fourth dataset/convention trap of the project): **the gate
-metric doesn't capture everything.** T2's win is in chamfer/centroid, T3's in
-the rotation *tail* — both under-credited by a worst-chamfer/median-rot_traj
-gate. And three of this campaign's key bugs (prompt-on-hand, mask leak, the
-cube's fabricated texture) were caught by *rendering and eyeballing*, not by
-metrics — same as the HOI4D bbox-center, fabricated-MANO_LEFT, and
-display-vs-eval-model traps before them.
-
-## Next build
-
-The rotation frontier is what's left. In expected-value order: (1) **fix the
-constant anchor attitude on non-textured symmetric objects** — T2 only works
-when texture discriminates; a geometry-based multi-hypothesis anchor search
-(scored by depth+silhouette over a full SO(3) grid, accepting the one-
-symmetry-basin ambiguity) could help the masher/vase where shape is
-asymmetric enough. (2) **Better SAM-3D texture fidelity or a per-frame
-texture re-projection** so the photometric terms work on more objects (the
-cube needs the *real* sticker layout, unreachable from generation alone —
-would need multi-view texture baking from the clip itself). (3) **T4 learned
-bake-off** if a ceiling estimate is wanted (Any6D / Point2Pose first, per
-T4_NOTES). (4) Extend the bench beyond 6 clips using the HOT3D-HIT
-interaction timelines (302 Aria clips indexed) for statistical power.
-
-## Dataset options beyond HOI4D (surveyed 2026-07-08)
-
-Requirement: video + sensor depth + CAD + object pose trajectory + hand pose.
-HOI4D's annotation quality is the current bottleneck for evaluation
-(per-frame human box fits: ±1.5 cm scatter, 6.4 mm GT-vs-depth floor,
-depth↔RGB wobble — measured in `sam3d_icp/RESULTS.md`).
-
-| dataset | depth | CAD | obj pose traj | hand | pose quality vs HOI4D |
-|---|---|---|---|---|---|
-| **HOT3D** (Meta 2024) | ✗ no depth camera (Aria/Quest3) — but mocap-grade poses + scanned CADs let you RENDER pixel-perfect GT depth | ✓ 33 scanned + PBR | ✓ mocap-grade | ✓ MANO/UmeTrack | ≫ |
-| **DexYCB** (NVIDIA 2021) | ✓ 8× RealSense | ✓ YCB | ✓ | ✓ MANO | > (8-cam joint fits) |
-| **HO-Cap** (2024) | ✓ 8× RealSense | ✓ scanned | ✓ | ✓ MANO | > newest tooling |
-| H2O (2021) | ✓ | ✓ | ✓ | ✓ two hands | > |
-| ARCTIC (2023) | ✗ | ✓ articulated | ✓ mocap-grade | ✓ | ≫ |
-| Aria Digital Twin (2023) | ~ rendered from twin | ✓ | ✓ | limited (no MANO) | ≫ |
-
-Notes: HOT3D is egocentric with headset motion (camera:identity does not
-hold — use its mocap camera trajectories); Aria RGB is fisheye624 (use
-hand_tracking_toolkit's camera model, not pinhole K). DexYCB/HO-Cap are the
-drop-in matches for the current harness (real sensor depth, static cams).
-**Verified in-session (2026-07-08)**: HOT3D BOP-clips release downloaded from
-HF `bop-benchmark/hot3d` to `/workspace/datasets/hot3d` (2 Aria clips + all
-33 GLBs); GT overlays are pixel-tight even for in-hand moving objects, and the GT
-hands render finger-perfect via the toolkit-native UmeTrack model —
-`compare/hot3d/gt_overlay_hot3d.py`, videos `gt_overlay_hot3d_clip-*.mp4`.
-WARNING for any MANO use on this box: the only MANO_LEFT.pkl here (HaWoR's,
-copied to /workspace/datasets/hot3d/mano) is FABRICATED — a right-hand model
-with mirrored template but the right hand's PCA basis/means — decoding
-official left-hand thetas with it reverses the palm. Get the official MPI
-MANO_LEFT.pkl before trusting any left-hand MANO decode.
-Pose the object_models_eval GLBs (meters) — objects.json poses are in the
-BOP-eval canonical; the display object_models (mm) are NOT all canonically
-consistent (uid 31 mouse is axis-swapped + offset ~2 cm). Poses/cameras are
-quaternion-wxyz world transforms.
-
-**HOT3D-HIT** (arXiv 2512.07394 "Reconstructing Objects along Hand
-Interaction Timelines") downloaded to
-`/workspace/datasets/hot3d/hot3d-hit/ROHIT-Paper-data/hot3d_hit.json`:
-113 per-object interaction timelines over 20 HOT3D sequences (22 categories,
-all names map to model uids via object_models_models_info.json); segments
-labeled scene_static / scene_dynamic / inhand (1,239 in-hand grasps, 58,789
-frames), frame indices into the FULL sequence. 19/20 sequences are Aria and
-contain 302 BOP clips — the bridge to single-interaction clip selection
-(BOP clips are timestamp-indexed; full-sequence frame↔timestamp mapping via
-the ROHIT repo's parsing, github.com/zhifanzhu/objects-along-hit).
-
-### Pipeline run on HOT3D (2026-07-08): the strategy generalizes, and so does its failure mode
-
-The full icpj recipe ran end-to-end on HOT3D clip-002500 (vase, 150 frames)
-via a new adapter, `compare/hot3d/make_rc_input.py`: Aria fisheye rectified
-onto a virtual upright 90°-FOV pinhole camera (1024², upright by rotating the
-camera about its optical axis — no post-rotation), and GT depth ray-cast
-(open3d) from ALL posed eval GLBs + UmeTrack hand meshes into that camera as
-16-bit mm PNGs (`--depth gt` / RC_GT_DEPTH_DIR convention; HOT3D has no depth
-sensor). SAM2 prompt = projected GT centroid at frame 0. Run:
-`runs/hot3d_vase_icpj`; side-by-side vs GT:
-`compare/hot3d/rc_vs_gt_hot3d_vase.mp4`; metrics
-`compare/hot3d/gt_pose_eval_hot3d.py` → `gt_pose_hot3d.json`.
-
-Joint refine converged to depth 3.9 mm / sil 0.60 px (tighter than kettle's
-5.2 mm / 2.4 px — cleaner rendered depth, mocap GT). Against mocap GT:
-chamfer 17.5 mm med, centroid 2.48 cm med, rot_traj 19.4° med — all better
-than kettle_N15 icpj3 (20.8 mm / 5.29 cm), and this time with NO annotation
-noise floor to hide behind. Phase breakdown is the real finding:
-
-| phase | rot_traj | chamfer | note |
-|---|---|---|---|
-| f0–95 vase static on table | 14–21° | 17–22 mm | placement visually on-object throughout |
-| f100–120 picked up, mouth-on views | 54–74° | **6–8 mm** | symmetry cheat: chamfer at its BEST while rotation is at its worst |
-| f140–150 fast in-hand rotation | 122° | 21 mm | attitude visibly wrong in overlay; centroid drifts to 6 cm |
-
-Same two known limits reproduced on a second dataset: (a) constant anchor
-attitude error (abs rot 77° via shape-G) — the anchor-frame attitude search
-stays the next build; (b) in-hand rotation tracking fails on near-revolution
-shapes exactly when depth ICP has no azimuth signal. Per-axis scale hit its
-usefulness limit too: it shrank SAM-3D's over-wide x-axis 22% ([0.78, 0.97,
-1.06]). HOT3D is adopted as the primary eval bed going forward — mocap GT
-makes sub-cm differences decidable.
-
-### 6-clip HOT3D batch (2026-07-08): failure taxonomy
-
-Selection: HIT names the interaction object per sequence; each clip's own
-mocap GT confirms in-clip motion + FOV (probe of 18 train-Aria clips →
-`compare/hot3d/probe_clips.py`, batch driver `run_batch.py`, per-clip
-side-by-sides `rc_vs_gt_<cat>_<clip>.mp4`, aggregate `batch_summary.json`).
-Medians vs mocap GT (`gt_pose_hot3d_*.json`):
-
-| clip (target) | chamfer | centroid | rot_traj | rot_abs | verdict |
-|---|---|---|---|---|---|
-| vase 002500 | 17.5 mm | 2.5 cm | 19.4° | 77° | good track; azimuth cheat in-hand |
-| potato_masher 002349 | 18.9 mm | 5.7 cm | 24.1° | **37°** | best attitude — asymmetric shape pins rotation |
-| bottle_bbq 002034 | 19.9 mm | 3.7 cm | 39.3° | 91° | revolution shape → azimuth unobservable; z-scale hit 1.4 clamp |
-| puzzle_toy 001964 | 18.6 mm | 3.4 cm | 82.7° | 154° | cube = 24-fold geometric symmetry: depth+sil has ZERO azimuth signal (only 37/150 frames registered) |
-| mug_white 001970 | 60.7 mm | 15.4 cm | 18.0° | 169° | SAM2 merged mug+FOREARM during propagation → SAM-3D generated a 25 cm mug-with-arm blob (caught visually) |
-| spatula_red 001990 | 158.8 mm | 13.9 cm | 32.8° | 46° | SAM2 anchor mask leaked into table/plate → 80 cm mesh; thin-object segmentation failure |
-
-Taxonomy: (1) registration itself is consistently ~18-20 mm chamfer whenever
-stage 1 gives a clean mask — across 4 categories; (2) rotation quality is a
-direct function of shape asymmetry (masher 37° ≫ bottle/cube), confirming
-azimuth must come from PHOTOMETRIC evidence, not geometry; (3) the two
-catastrophic failures are both stage-1 SEGMENTATION on hand-held/thin
-objects (mug+arm merge, spatula→table leak), upstream of everything this
-strategy tunes. Priority update: hand-aware segmentation (subtract hand
-masks / negative clicks from SAM2) is now tied with the anchor attitude
-search; both are cheaper than any further registration work.
-
-## Blocked / caveats
-
-- The raw HOI4D tree (`/workspace/hoi4d`: 12 clips, GT depth, masks) is
-  **gone from disk**; all current evidence is single-clip (kettle_N15) from
-  the archived `render_and_compare/runs/kettle_gt*`. Restore the dataset
-  before any multi-clip claim.
-- Hand side is untouched by all of this (hand-depth closure was only 0.16 in
-  the matrix): HaWoR/HaMeR hand + its anchors is the other half of b5.
-- Dead pre-Blackwell envs on this box: forehoi, daid, hort, easyhoi, hold.
-  Working: rc5090, sam3d5090, gate2.
+- **Benchmark inputs:** `/workspace/datasets/hot3d/rc_input_<num>_<clip>/`
+  (rgb.mp4, frames/, ray-cast depth_png/, intrinsics.npy). 6 frozen clips: bottle_bbq
+  002034, mug_white 001970, vase 002500, potato_masher 002349, spatula_red 001990,
+  puzzle_toy 001964.
+- **Acceptance gate** (`leaderboard.py`): lexicographic — no clip regresses >20% on
+  chamfer/rot_traj (noise floors +2 mm / +5°), then worst-clip chamfer strictly
+  improves, or ties within 1 mm and mean rot_traj improves. *The gate under-credits
+  real wins* (T2 = chamfer, T3 = rotation tail, Any6D = placement) — always keep the
+  raw per-clip numbers, not just the verdict.
+- **Convention traps** (all four caught by *rendering and eyeballing*, never by a
+  metric): HOI4D poses annotate the CAD **bbox centre**, not the origin; the only
+  `MANO_LEFT.pkl` on this box is **fabricated** (mirrored right hand — get the official
+  MPI file before trusting any left-hand decode); HOT3D ships two model sets whose
+  canonicals disagree — **pose the `object_models_eval` GLBs (meters), not the display
+  GLBs**; poses/cameras are quaternion-wxyz world transforms.
+- **HOT3D-HIT** (the bench-expansion source): 113 per-object interaction timelines
+  over 20 sequences at
+  `/workspace/datasets/hot3d/hot3d-hit/ROHIT-Paper-data/hot3d_hit.json`; 302 Aria BOP
+  clips. Selection driver `compare/hot3d/probe_clips.py`.
+- **Envs:** dead pre-Blackwell envs (`forehoi`, `hort`, `hold`, `easyhoi`, `daid`,
+  cu118/cu121) have no sm_120 kernels — do not use. Blackwell revival recipes:
+  [`compare/hot3d/docs/T4_NOTES.md`](compare/hot3d/docs/T4_NOTES.md) ("one env for
+  all" is infeasible; each learned method was rebuilt by cloning the `sam3d5090`
+  stack).
+- **The durable lessons:** calibration is a moat; accuracy and robustness are
+  different axes (learned pose wins one, temporal optimization wins the other);
+  mesh-control every comparison; render and eyeball — it caught every convention trap
+  and load-bearing bug in the project.
