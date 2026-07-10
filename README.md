@@ -12,15 +12,21 @@ truth on HOT3D.
 |---|---|
 | The whole story + all-method comparison + lessons | **[`compare/hot3d/README.md`](compare/hot3d/README.md)** (overall summary) and [`compare/hot3d/docs/REFLECTION.md`](compare/hot3d/docs/REFLECTION.md) (full journey) |
 | The current best strategy: full workflow + what's left | **[`BEST_STRATEGY.md`](BEST_STRATEGY.md)** |
+| The latest campaign: learned-core integration, the Pareto finding, what's *not* fixable and why | **[`compare/hot3d/docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md)** |
 | The head-to-head numbers | [`compare/hot3d/scores/LEADERBOARD.md`](compare/hot3d/scores/LEADERBOARD.md), [`compare/hot3d/docs/T4_RESULTS.md`](compare/hot3d/docs/T4_RESULTS.md) |
 | To run the pipeline | [`render_and_compare/README.md`](render_and_compare/README.md) + [`RUN_REAL.md`](render_and_compare/RUN_REAL.md) |
 
 **TL;DR of the findings:** our optimization pipeline (`render_and_compare`, best arm
-`icpjgr`) cut mean chamfer 3.2× on HOT3D and never fails catastrophically; learned
-RGB-D pose estimators (Any6D, FoundationPose) that *consume the calibrated depth*
-are more *accurate* per-frame but less *robust*; the **combined method** (learned
-pose + our temporal layer) gets both. Learned methods that *discard* depth (HORT,
-ForeHOI) reconstruct good shape but misplace it. Full detail in the summary above.
+`icpjgr`) cut mean chamfer 3.2× on HOT3D and never fails catastrophically. A learned
+RGB-D pose core (Any6D) is now integrated *inside* the pipeline (arm `any6dp`, one run) —
+it wins placement decisively (chamfer better on **9/11 clips**, new-clip median 7.1→2.8
+mm at 2× scale) but trades rotation. `any6dp` and `icpjgr` are a proven
+**placement-vs-rotation Pareto pair**: four independent attempts to give the learned core
+icpjgr's rotation all failed — the rotation/attitude/texture axis is a **hard wall**
+(symmetric-object orientation is under-constrained by depth, and on hand-held objects the
+one discriminating feature is exactly what the hand occludes). Learned methods that
+*discard* depth (HORT, ForeHOI) get good shape but misplace. Latest campaign in full:
+[`compare/hot3d/docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md).
 
 ---
 
@@ -30,14 +36,14 @@ ForeHOI) reconstruct good shape but misplace it. Full detail in the summary abov
 
 | Folder | What | Status |
 |---|---|---|
-| [`render_and_compare/`](render_and_compare/) | The main compositional pipeline: depth substrate → SAM-3D object mesh → joint depth+silhouette registration → contact optimization. Became the HOT3D best arm **icpjgr**. Docs: [DESIGN](render_and_compare/DESIGN.md), [REPRODUCE](render_and_compare/REPRODUCE.md), [RUN_REAL](render_and_compare/RUN_REAL.md), [RESEARCH_DIRECTIONS](render_and_compare/RESEARCH_DIRECTIONS.md). Run dirs in `runs/`, configs in `configs/`. | ✅ runnable (env `rc5090`) |
+| [`render_and_compare/`](render_and_compare/) | The main compositional pipeline: depth substrate → SAM-3D object mesh → joint depth+silhouette registration → contact optimization. Rotation-robust best arm **icpjgr** (`BEST_ARM`); stage-4 `pose_core: learned` also hosts the **`any6dp`** arm (Any6D pose core + temporal layer, `configs/real_any6d.yaml`) — placement-optimal. Docs: [DESIGN](render_and_compare/DESIGN.md), [REPRODUCE](render_and_compare/REPRODUCE.md), [RUN_REAL](render_and_compare/RUN_REAL.md), [RESEARCH_DIRECTIONS](render_and_compare/RESEARCH_DIRECTIONS.md). Run dirs in `runs/`, configs in `configs/`. | ✅ runnable (env `rc5090`) |
 | [`egoaero/`](egoaero/) | EgoAERO Part A — asset-free egocentric HOI reconstruction (adaptive contact optimization). | 🟡 recon runnable in mock |
 
 ### The comparison study — [`compare/`](compare/)
 
 | Path | What |
 |---|---|
-| **[`compare/hot3d/`](compare/hot3d/)** | **The main study.** Frozen 6-clip HOT3D benchmark, the pipeline arms (icpj→icpjgr), the learned-method bake-off (HORT/ForeHOI/FoundationPose/Any6D), and the combined method. Self-contained README + `docs/` + `scores/` + `overlays/`. |
+| **[`compare/hot3d/`](compare/hot3d/)** | **The main study.** HOT3D benchmark (6 frozen clips, scaled to 12 for validation), the pipeline arms (icpj→icpjgr), the learned-method bake-off (HORT/ForeHOI/FoundationPose/Any6D), the in-pipeline learned core (`any6dp`), and the rotation-fixing dead ends. Self-contained README + `docs/` (incl. `T5_NOTES.md`) + `scores/` + `overlays/`. |
 | [`compare/hoi4d/`](compare/hoi4d/) | The earlier HOI4D-era comparison (kettle_N15): GT-pose eval, photometric checks, the bbox-centre convention discovery. Superseded by HOT3D but documents the traps. |
 | [`compare/adapters/`](compare/adapters/) | Adapters that map each method's raw output into a common scene format for the viewer. |
 | [`compare/scenes/`](compare/scenes/), `backproj/`, `daid_run/`, `method_notes/` | Common scene bundles, backprojection overlays, do-as-i-do run scripts, per-method notes. |
@@ -61,7 +67,8 @@ feasibility matrix and Blackwell recipes ("one env for all" is infeasible).
 
 | File | What |
 |---|---|
-| [`BEST_STRATEGY.md`](BEST_STRATEGY.md) | Concise strategy doc: the arc in brief, the full end-to-end workflow of today's best strategy (icpjgr + the combined-method frontier), the live numbers, and the ranked what's-left-to-improve. |
+| [`BEST_STRATEGY.md`](BEST_STRATEGY.md) | Concise strategy doc: the arc in brief, the full end-to-end workflow (icpjgr rotation-robust core + the `any6dp` learned placement core), the live numbers, and the roadmap with every item's outcome (1–6 done or definitively resolved). |
+| [`compare/hot3d/docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md) | The learned-core integration (item 1) + the four rotation-fixing negatives (items 2–4) + the 12-clip scale validation (item 6), with the evidence for each. |
 | [`hoi.md`](hoi.md) | HOI paper reading list (the T4 candidate source). |
 | [`allinone.md`](allinone.md) | Paper-search results: HOI datasets with RGB-D + CAD + pose trajectories. |
 | [`docs/superpowers/`](docs/superpowers/) | The spec + implementation plan for the HOT3D improvement campaign. |
@@ -82,9 +89,10 @@ have no sm_120 kernels — do not use. See `compare/hot3d/docs/T4_NOTES.md`.
 
 ## The benchmark
 
-Frozen 6-clip HOT3D bench (mocap-grade GT), inputs at
-`/workspace/datasets/hot3d/rc_input_<num>_<clip>/` (rgb.mp4, frames/, ray-cast
-depth_png/, intrinsics.npy). Each method writes a run to
+Frozen 6-clip HOT3D bench (mocap-grade GT), scaled to **12 clips** (via HOT3D-HIT
+motion/FOV probing → `compare/hot3d/selection_all.json`) for the item-1 validation.
+Inputs at `/workspace/datasets/hot3d/rc_input_<num>_<clip>/` (rgb.mp4, frames/,
+ray-cast depth_png/, intrinsics.npy). Each method writes a run to
 `render_and_compare/runs/hot3d_<clip>_<method>/stage8_eval/pseudo_gt.npz`
 (`{obj_verts, obj_faces, obj_poses[T,4,4]}`), scored by
 `compare/hot3d/gt_pose_eval_hot3d.py` against the GT trajectory.
