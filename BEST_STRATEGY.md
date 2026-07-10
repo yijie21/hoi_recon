@@ -179,6 +179,32 @@ the corrective signals (wrist, generated texture, temporal priors) are noisier t
 learned per-frame estimate. `icpjgr` remains the rotation-robust `BEST_ARM`; `any6dp` is
 the placement-optimal alternative.
 
+## Open directions (for a fresh session)
+
+The roadmap above is fully resolved; these are the *unexplored* threads, highest-value
+first. **Do not re-run the items 2–4 approaches** (rotation via temporal/attitude/texture
+priors — exhausted; see T5_NOTES).
+
+1. **Swap the learned stage-4 core.** `any6dp` uses Any6D; the T4 bake-off found
+   **FoundationPose `register_each`** even stronger per-frame (mug rot ~3°). Reuse the exact
+   `pose_core: learned` wiring (subprocess handoff + freeze + temporal layer) with an FP
+   entry → a `fp-p` arm. `compare/hot3d/run_any6d_hot3d.py` is the template; FP already has a
+   subprocess entry (`render_and_compare/scripts/subprocess_entries/FoundationPose/`).
+2. **Cross-dataset validation.** DexYCB / HO-Cap have **real sensor depth + static cams** —
+   test whether the placement win + Pareto finding hold off HOT3D's *rendered* depth. Would
+   substantially harden the central finding; the harness (`gt_pose_eval` + `run_batch`) is
+   dataset-agnostic given an adapter like `make_rc_input.py`.
+3. **Extend the bench.** Only 20 of 302 HOT3D-HIT BOP clips are on disk; `probe_clips.py`
+   auto-downloads more — grow past 12 clips (esp. non-symmetric categories) for tighter
+   statistics on the 9/11 placement win.
+4. **The untouched hand side.** The whole campaign was object-only. Hand quality
+   (HaMeR/HaWoR), hand–object contact, and joint hand+object optimization are the other half
+   of the HOI, and gate real overlay quality.
+5. **A genuinely-new rotation attack** (only if revisiting the wall): the
+   temporal/attitude/texture family is exhausted. Unexplored: a *learned* attitude prior, or
+   SfM-style surface-feature tracking for relative azimuth on in-hand-rotated objects. Hard,
+   low prior — the wall is real.
+
 ---
 
 ## Runnable recipe
