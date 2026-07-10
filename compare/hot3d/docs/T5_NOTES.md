@@ -89,7 +89,34 @@ by depth-cloud fit and evaluating its `rot_abs` vs GT, showed:
 Narrow, gate-invisible payoff on ≈1 clip → not built into the pipeline (user steer:
 validate item 1 at scale instead, item 6). The diagnostic scripts were scratch-only.
 
-## Item 6 — scale validation (in progress)
+## Item 4 — texture re-projection (attempted, negative)
+
+Idea: bake the object's REAL texture from the clip (project each frame's RGB onto the
+SAM-3D mesh via the icpjgr poses, aggregate per-vertex) so the T2 chroma-attitude term
+works on objects whose SAM-3D-*generated* texture is wrong (the cube's stickers). A
+facing-weighted multi-frame baking prototype (4 clips):
+
+| clip | seen | cross-frame color-std | baked-vs-SAM3D dLAB | surface chroma-spread baked / SAM3D |
+|---|---|---|---|---|
+| mug | 79% | 0.18 | 5.7 | 2.4 / 0.7 |
+| masher | 50% | 0.30 | 14.7 | 3.9 / 1.8 |
+| cube | 47% | 0.30 | 13.3 | **6.3 / 2.3** |
+| bottle | 73% | 0.24 | 20.7 | 6.9 / **9.2** |
+
+Negative on three grounds. **(1) Smeared, not crisp:** the per-vertex cross-frame colour
+std is 0.18–0.30 (on [0,1]) — a blurry texture, because a clean bake needs the accurate
+rotations the bake is meant to help produce (chicken-egg). **(2) Circular:** baking with
+the icpjgr poses makes the texture self-consistent with them, so re-running T2 just
+re-confirms the baking pose (no attitude gain vs GT). **(3) Defeated where it helps:** only
+the cube's real stickers are markedly more discriminative than SAM-3D's (6.3 vs 2.3), but
+the cube is 24-fold symmetric and the bake is smeared, so the stickers can't pin azimuth;
+and where T2 already works (bottle) the duller baked texture (6.9) is *worse* than SAM-3D's
+vivid generated label (9.2), so baking would HURT it. A non-circular variant (search the
+anchor azimuth for the one maximizing cross-frame texture consistency) needs crisp relative
+tracking and still breaks on symmetry — the same wall as items 2–3. Not built; prototype
+scratch-only.
+
+## Item 6 — scale validation
 
 Selected 6 more single-object HIT clips (same categories, different sequences/instances)
 via motion+FOV probing → `selection_scale.json` (12-clip `selection_all.json`). Ran
