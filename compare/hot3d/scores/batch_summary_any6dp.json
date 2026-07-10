@@ -1,0 +1,56 @@
+[
+ {
+  "clip": "clip-002034",
+  "cat": "bottle_bbq",
+  "chamfer_mm": 5.5,
+  "centroid_cm": 1.17,
+  "rot_traj_med": 7.4,
+  "rot_traj_p90": 21.5,
+  "rot_abs_med": 4.6
+ },
+ {
+  "clip": "clip-001970",
+  "cat": "mug_white",
+  "chamfer_mm": 3.4,
+  "centroid_cm": 0.71,
+  "rot_traj_med": 26.9,
+  "rot_traj_p90": 72.9,
+  "rot_abs_med": 93.2
+ },
+ {
+  "clip": "clip-002500",
+  "cat": "vase",
+  "chamfer_mm": 6.6,
+  "centroid_cm": 1.31,
+  "rot_traj_med": 7.6,
+  "rot_traj_p90": 95.7,
+  "rot_abs_med": 7.5
+ },
+ {
+  "clip": "clip-002349",
+  "cat": "potato_masher",
+  "chamfer_mm": 19.7,
+  "centroid_cm": 3.93,
+  "rot_traj_med": 46.4,
+  "rot_traj_p90": 167.0,
+  "rot_abs_med": 48.7
+ },
+ {
+  "clip": "clip-001990",
+  "cat": "spatula_red",
+  "chamfer_mm": 12.8,
+  "centroid_cm": 4.73,
+  "rot_traj_med": 26.1,
+  "rot_traj_p90": 142.5,
+  "rot_abs_med": 30.8
+ },
+ {
+  "clip": "clip-001964",
+  "cat": "puzzle_toy",
+  "chamfer_mm": 21.2,
+  "centroid_cm": 2.78,
+  "rot_traj_med": 119.0,
+  "rot_traj_p90": 170.0,
+  "rot_abs_med": 157.0
+ }
+]

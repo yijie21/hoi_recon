@@ -9,6 +9,8 @@ gap — the misalignment that stages 6-7 exist to fix.
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 from ..bundle import Bundle
@@ -40,6 +42,31 @@ def run(ctx) -> Bundle:
         # TODO(real): solve global similarity to metric depth (geometry.umeyama).
         log("real-mode metric scale solve not yet wired; using world_scale=1", "warn")
 
+    icp_cfg = cfg.get("object_icp") if hasattr(cfg, "get") else None
+    pose_core = (icp_cfg.get("pose_core", "icp")
+                 if (icp_cfg and hasattr(icp_cfg, "get")) else "icp")
+    icp_stats = None
+    s_icp = 1.0
+    learned_radius = None
+
+    # Item 1: LEARNED per-frame RGB-D pose core (Any6D) + temporal layer, in place
+    # of ICP. The object is frozen through stages 5-7 (config: smoothing.window=1 +
+    # optim.joint.freeze_object) so eval scores exactly these cleaned poses.
+    if pose_core == "learned" and not cfg.mock and s0.meta.get("has_depth"):
+        from ..object_any6d import estimate_object_poses_any6d
+        s1 = ctx.load("stage1_detect_track")
+        run_dir = os.path.dirname(os.path.dirname(s1.assets["masks_dir"]))
+        depth_env = os.environ.get("RC_GT_DEPTH_DIR")
+        if not depth_env:
+            raise RuntimeError("learned pose core needs RC_GT_DEPTH_DIR (rc_input depth_png)")
+        rc_input = os.path.dirname(depth_env)
+        learned = icp_cfg.get("learned") if hasattr(icp_cfg, "get") else None
+        out = estimate_object_poses_any6d(learned, run_dir, rc_input, s3)
+        obj_verts, obj_faces = out["obj_verts"], out["obj_faces"]
+        obj_poses = out["obj_poses"]
+        learned_radius = out["obj_radius"]
+        icp_stats = out["stats"]
+
     # CHOIR coarse: ray-scale alignment — slide the object along the camera ray so
     # its interaction depth matches the hand (preserves the silhouette fit).
     coarse = cfg.get("coarse") if hasattr(cfg, "get") else None
@@ -54,11 +81,8 @@ def run(ctx) -> Bundle:
     # Optional locked-scale rigid ICP: re-register the canonical object mesh
     # per frame onto the masked depth cloud (replaces the depth-lift-anchored
     # trajectory; scale stays global — see hoi_recon/object_icp.py).
-    icp_cfg = cfg.get("object_icp") if hasattr(cfg, "get") else None
-    icp_stats = None
-    s_icp = 1.0
-    if icp_cfg and icp_cfg.get("enable", False) and not cfg.mock \
-            and s0.meta.get("has_depth"):
+    if pose_core != "learned" and icp_cfg and icp_cfg.get("enable", False) \
+            and not cfg.mock and s0.meta.get("has_depth"):
         from ..object_icp import refine_object_poses
         from ..grasp_segments import grasp_mask_contact, grasp_spans
         s1 = ctx.load("stage1_detect_track")
@@ -119,7 +143,8 @@ def run(ctx) -> Bundle:
     arrays = {"hand_verts": hand_verts, "hand_joints": hand_joints,
               "contact_idx": contact_idx, "obj_verts": obj_verts,
               "obj_faces": obj_faces, "obj_poses": obj_poses,
-              "obj_radius": s3.get("radius", np.array(0.0)) * s_icp,
+              "obj_radius": (learned_radius if learned_radius is not None
+                             else s3.get("radius", np.array(0.0)) * s_icp),
               "gaps": gaps}
     obj_colors = s3.get("colors")              # present only for textured backends (sam3d)
     if obj_colors is not None:

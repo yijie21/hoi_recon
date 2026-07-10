@@ -104,10 +104,12 @@ the bottle this **beats icpjgr on every metric** (chamfer 5.2 vs 9.9, rot p90 17
 
 ## What to build next
 
-1. Swap stage-4's registration core for a learned per-frame estimator
-   (FoundationPose-register / Any6D) inside the pipeline, keeping the temporal layer.
-2. Flip-aware SO(3) rotation smoother + per-frame depth-anchored basin selection
-   (fixes the masher's sustained wrong-basin, which pure temporal smoothing can't).
+1. ✅ Done — stage-4 learned pose core (Any6D) inside the pipeline, keeping the temporal
+   layer (arm `any6dp`). Placement-optimal; Pareto-traded against rotation. See
+   [`docs/T5_NOTES.md`](docs/T5_NOTES.md).
+2. ⛔ Negative — the learned core's rotation is not recoverable (depth-basin, grasp-
+   rigidity, surgical, and hybrid all fail). `any6dp` and `icpjgr` are a placement-vs-
+   rotation Pareto pair. See [`docs/T5_NOTES.md`](docs/T5_NOTES.md).
 3. Hand-aware segmentation remains the highest-leverage upstream fix for any method.
 4. Better SAM-3D texture fidelity so the photometric/attitude terms work on more
    objects (the cube needs the *real* sticker layout).
@@ -119,7 +121,7 @@ the bottle this **beats icpjgr on every metric** (chamfer 5.2 vs 9.9, rot p90 17
 ```
 compare/hot3d/
 ├── README.md                  # this overall summary
-├── docs/                      # REFLECTION.md (full journey), T4_RESULTS.md, T4_NOTES.md
+├── docs/                      # REFLECTION.md (full journey), T4_RESULTS.md, T4_NOTES.md, T5_NOTES.md
 ├── scores/                    # LEADERBOARD.md, BEST_ARM, batch_summary_<arm>.json
 ├── overlays/                  # rc_vs_gt_<clip>_<method>.mp4, hort_*, gt_overlay_*
 ├── make_rc_input.py           # adapter: Aria fisheye -> pinhole RGB + ray-cast GT depth

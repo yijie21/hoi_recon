@@ -1,0 +1,74 @@
+# Arm any6dp — item 1: the combined method done PROPERLY inside the pipeline.
+# Stage-4 object pose comes from a LEARNED per-frame RGB-D estimator (Any6D,
+# forehoi5090 subprocess) + the in-process temporal layer (symmetry-flip
+# resolution + jitter smoothing), instead of the ICP core. Everything else is
+# icpjgr: T1 hand-aware segmentation, same SAM-3D mesh (promoted from icpjgr),
+# same grasp layer — but the object is FROZEN through stages 5-7 so eval scores
+# exactly the learned+temporal track (smoothing.window:1 + freeze_object:true).
+#
+#   run_batch.py selection.json --arm any6dp --config configs/real_any6d.yaml
+mock: false
+
+backend:
+  hand: hamer
+  object: sam3d
+  depth: moge
+  object_pose: silhouette
+  camera: identity        # learned poses are object->camera == object->world only here
+  sam3d_env: sam3d5090
+  hand_aware_seg: true    # T1
+
+optim:
+  differentiable: false
+  iters: 200
+  lr: 0.02
+  w_contact: 1.0
+  w_pen: 0.3
+  w_temporal: 0.2
+  w_anchor: 0.02
+  joint:
+    w_seat: 1.0
+    w_prior_obj: 200.0
+    freeze_object: true   # hold the learned object track; close the grasp via the hand
+
+contact:
+  dist_thresh_m: 0.02
+  normal_thresh_deg: 60.0
+  knn_k: 50
+
+smoothing:
+  window: 1               # no stage-5 object translation smoothing (temporal layer owns it)
+
+object_icp:
+  enable: true            # ignored on the learned branch (kept for cache/promotion parity)
+  pose_core: learned      # <-- stage 4 uses the Any6D learned core instead of ICP
+  learned:
+    method: any6d
+    env: forehoi5090
+    iteration: 5
+    anchor: null          # null -> use stage3 anchor_frame
+    lam_trans: 3.0        # data-anchored translation jitter smoothing (validated free win)
+    lam_rot: 0.0          # scalar rotation smoothing OFF until the flip-aware smoother (item 2)
+  # --- ICP params below are inert when pose_core=learned (kept for reference) ---
+  trim: 0.8
+  iters: 60
+  erode_px: 5
+  max_points: 3000
+  mesh_samples: 20000
+  global_scale_refit: true
+  rotation: init
+  scale_refit_rounds: 2
+  joint_silhouette: true
+  joint_rounds: 4
+  joint_iters: 80
+  joint_sil_points: 2000
+  sil_coverage_px: 300
+  sil_downsample: 4
+  w_depth: 1.0
+  w_sil: 1.0
+  w_cov: 0.3
+  w_rot_prior: 10.0
+  w_temp: 2.5
+  w_photo: 0.0
+  attitude_search: 24
+  w_grasp: 1.0

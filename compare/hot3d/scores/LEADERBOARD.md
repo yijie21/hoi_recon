@@ -8,6 +8,12 @@
 | any6d | puzzle_toy | 21.3 | 2.71 | 130.1 | 173.3 | 118.4 |
 | any6d | spatula_red | 9.6 | 5.61 | 30.1 | 153.4 | 21.5 |
 | any6d | vase | 6.4 | 1.29 | 8.5 | 93.1 | 7.6 |
+| any6dp | bottle_bbq | 5.5 | 1.17 | 7.4 | 21.5 | 4.6 |
+| any6dp | mug_white | 3.4 | 0.71 | 26.9 | 72.9 | 93.2 |
+| any6dp | vase | 6.6 | 1.31 | 7.6 | 95.7 | 7.5 |
+| any6dp | potato_masher | 19.7 | 3.93 | 46.4 | 167.0 | 48.7 |
+| any6dp | spatula_red | 12.8 | 4.73 | 26.1 | 142.5 | 30.8 |
+| any6dp | puzzle_toy | 21.2 | 2.78 | 119.0 | 170.0 | 157.0 |
 | combined | bottle_bbq | 5.6 | 1.16 | 7.0 | 16.7 | - |
 | combined | mug_white | 3.4 | 0.72 | 27.7 | 73.0 | - |
 | combined | potato_masher | 12.3 | 3.82 | 69.2 | 172.8 | - |

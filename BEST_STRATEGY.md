@@ -143,14 +143,17 @@ bake-off (HORT / ForeHOI / FoundationPose / Any6D) in
 
 ## What's still to improve (ranked by expected value)
 
-1. **Integrate the learned core *inside* the pipeline** (not as a post-processor).
-   Swap stage-4's registration for FoundationPose-register / Any6D and keep icpjgr's
-   temporal + grasp layer — the combined method done properly, so robustness and
-   accuracy are optimized jointly rather than stitched.
-2. **Flip-aware SO(3) rotation smoother + per-frame depth-anchored basin selection.**
-   The single missing piece behind the ⚠ rows: the masher's *sustained* wrong basin
-   and the residual flips that scalar rotation smoothing can't touch. This is what
-   would let rotation smoothing be turned on safely.
+1. ✅ **DONE — Integrate the learned core *inside* the pipeline.** Stage-4
+   `pose_core: learned` runs Any6D as a subprocess + the temporal layer in one pipeline
+   run, object frozen through grasp (arm `any6dp`, `configs/real_any6d.yaml`). Wins
+   chamfer 4/6 (often 2–3×) → the **placement-optimal** arm; fails the gate on rotation
+   (icpjgr stays `BEST_ARM`). Detail: [`docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md).
+2. ⛔ **NEGATIVE — cannot recover the learned core's rotation.** Four approaches tried
+   (depth-anchored basin selection = redundant with the depth-consuming core;
+   grasp-rigidity prior = hurts; surgical flip-fix = neutral; icpjgr-rot/Any6D-transl
+   hybrid = chamfer collapses). Finding: `any6dp` and `icpjgr` are a genuine
+   **placement-vs-rotation Pareto pair** — Any6D's chamfer is inseparable from its
+   rotation. [`docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md).
 3. **Constant anchor-attitude on non-textured symmetric objects.** T2 only works when
    texture discriminates; a geometry-based multi-hypothesis SO(3) anchor search
    (scored by depth+silhouette over a full grid, accepting the one-symmetry-basin

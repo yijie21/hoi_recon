@@ -94,11 +94,15 @@ def joint_optimize(hand_verts, hand_joints, contact_idx, obj_verts, obj_faces,
     # grasp frames: palm near the object centroid (object centroid = t0, verts centered)
     graspf = (torch.norm(cpalm0 - t0, dim=1) < 2.0 * r + 0.06).float()   # (T,)
 
+    # freeze_object: hold the object exactly at its input poses and close the grasp
+    # by moving the HAND only (to,ro stay non-grad zeros -> Pn == obj_poses). Used by
+    # the learned pose core, whose stage-4 track is what eval scores.
+    freeze_obj = bool(j.get("freeze_object", False)) if hasattr(j, "get") else False
     th = torch.zeros(T, 3, device=dev, requires_grad=True)
     rh = torch.zeros(T, 3, device=dev, requires_grad=True)
-    to = torch.zeros(T, 3, device=dev, requires_grad=True)
-    ro = torch.zeros(T, 3, device=dev, requires_grad=True)
-    opt = torch.optim.Adam([th, rh, to, ro], lr=lr)
+    to = torch.zeros(T, 3, device=dev, requires_grad=not freeze_obj)
+    ro = torch.zeros(T, 3, device=dev, requires_grad=not freeze_obj)
+    opt = torch.optim.Adam([th, rh] if freeze_obj else [th, rh, to, ro], lr=lr)
 
     def forward():
         Rh = _rodrigues(rh)
