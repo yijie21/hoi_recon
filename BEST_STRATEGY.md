@@ -154,18 +154,29 @@ bake-off (HORT / ForeHOI / FoundationPose / Any6D) in
    hybrid = chamfer collapses). Finding: `any6dp` and `icpjgr` are a genuine
    **placement-vs-rotation Pareto pair** — Any6D's chamfer is inseparable from its
    rotation. [`docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md).
-3. **Constant anchor-attitude on non-textured symmetric objects.** T2 only works when
-   texture discriminates; a geometry-based multi-hypothesis SO(3) anchor search
-   (scored by depth+silhouette over a full grid, accepting the one-symmetry-basin
-   ambiguity) could pin the masher/vase where shape is asymmetric enough.
-4. **Better SAM-3D texture fidelity / per-frame texture re-projection.** So the
-   photometric + attitude terms work on more objects — the cube needs the *real*
-   sticker layout, unreachable from generation alone (would need multi-view texture
-   baking from the clip itself).
-5. **Hand-aware segmentation remains the highest-leverage upstream fix** for *any*
-   method — every method's ceiling is set by the stage-1 mask on hand-held objects.
-6. **Scale the bench beyond 6 clips** using the HOT3D-HIT interaction timelines
-   (302 Aria clips indexed) for statistical power on any future gain.
+3. 🔍 **DIAGNOSED (gate-invisible) — geometry anchor-attitude search.** A 400-hypothesis
+   SO(3) go/no-go: attitude errors are correctable in principle (mug `rot_abs` 139→12
+   achievable) and multi-frame depth+silhouette *partially* recovers them where shape
+   discriminates (mug handle 139→46), but depth is fooled on thin/symmetric shapes and
+   the whole fix is **gate-invisible** (`rot_traj` removes the constant offset it fixes).
+   Not built. [`docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md).
+4. ⛔ **NEGATIVE — texture re-projection.** Baking the real clip texture onto the mesh is
+   smeared (needs the accurate rotations it's meant to help produce — chicken-egg),
+   circular (self-consistent with the baking pose), and where it adds discrimination
+   (cube) it's defeated by symmetry; where T2 already works (bottle) it *hurts*.
+   [`docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md).
+5. ✅ **DONE (earlier, T1) — hand-aware segmentation** is the highest-leverage upstream
+   fix; every method's ceiling is set by the stage-1 mask on hand-held objects.
+6. ✅ **DONE — scaled the bench to 12 clips** (HOT3D-HIT). The placement win generalizes
+   (any6dp chamfer wins **9/11**, new-clip median 7.1→2.8 mm) and the Pareto trade-off
+   holds (rotation regresses 6/11). [`docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md).
+
+**Campaign verdict:** item 1 (learned placement core) is the durable win — validated at
+2× scale. The rotation/attitude/texture axis (items 2–4) is a proven hard wall on this
+benchmark: symmetric-object orientation is fundamentally under-constrained by depth, and
+the corrective signals (wrist, generated texture, temporal priors) are noisier than the
+learned per-frame estimate. `icpjgr` remains the rotation-robust `BEST_ARM`; `any6dp` is
+the placement-optimal alternative.
 
 ---
 
