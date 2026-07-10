@@ -68,7 +68,7 @@ not — so the learned core scores a superb chamfer while its azimuth flickers.
 because even flip-aware rotation smoothing is a small net loss on the learned poses. The
 depth-basin and grasp-rigidity experiment modules were removed (findings recorded here).
 
-## Item 3 — geometry anchor-attitude search (diagnosed, not built)
+## Item 3 — geometry anchor-attitude search (built, tested — NOT robustly achievable)
 
 Target: the ICP core's *constant* anchor-attitude error on shape-asymmetric objects
 (the mug's absolute attitude `rot_abs` is 138.9° despite a good `rot_traj` of 22.6° — a
@@ -86,8 +86,26 @@ by depth-cloud fit and evaluating its `rot_abs` vs GT, showed:
   the constant offset item 3 fixes, so the gate never moves; item 3 improves *absolute*
   reconstruction quality (the object faces the right way) but not the leaderboard.
 
-Narrow, gate-invisible payoff on ≈1 clip → not built into the pipeline (user steer:
-validate item 1 at scale instead, item 6). The diagnostic scripts were scratch-only.
+**Then built and tested it** (`attitude_fix.py`, since removed): a constant SO(3)
+correction found by a multi-frame depth+silhouette search over a 300-hypothesis grid,
+applied only past a relative-gain gate. It does **not** work robustly:
+
+- **The mug (the target) never fires.** Its `rel_gain` stays 0.03–0.04 across silhouette
+  weights (`w_sil` 0.5→2.0), i.e. the corrected fit is no better than the current pose —
+  the go/no-go's "45.6°" was a noise-level argmin, not a real signal.
+- **Root cause — the cue is occluded.** The mug's only attitude feature is the handle, and
+  the mug's object-mask area swings **4× (22.9k→95.5k px)** across the clip: it is grasped
+  and heavily/variably occluded by the hand, so neither depth-chamfer (handle is a tiny
+  surface fraction) nor silhouette (handle often hidden) carries an attitude signal. This
+  is a *data* limitation — the discriminative feature is exactly where the hand is.
+- **The search false-fires on revolution objects.** The bottle triggers a 116° correction
+  (`rel_gain` 0.24) — a partial-view depth cloud makes azimuthal rotation look better by
+  chance. This is precisely the wrong-basin trap the ICP core's `rotation: init` + prior
+  deliberately avoids.
+
+So the item-3 fix is confirmed unachievable on this data, for a principled reason, not a
+tuning failure — the module was removed. Consistent with items 2 and 4: the
+rotation/attitude axis is a hard wall.
 
 ## Item 4 — texture re-projection (attempted, negative)
 

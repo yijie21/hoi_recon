@@ -154,12 +154,13 @@ bake-off (HORT / ForeHOI / FoundationPose / Any6D) in
    hybrid = chamfer collapses). Finding: `any6dp` and `icpjgr` are a genuine
    **placement-vs-rotation Pareto pair** — Any6D's chamfer is inseparable from its
    rotation. [`docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md).
-3. 🔍 **DIAGNOSED (gate-invisible) — geometry anchor-attitude search.** A 400-hypothesis
-   SO(3) go/no-go: attitude errors are correctable in principle (mug `rot_abs` 139→12
-   achievable) and multi-frame depth+silhouette *partially* recovers them where shape
-   discriminates (mug handle 139→46), but depth is fooled on thin/symmetric shapes and
-   the whole fix is **gate-invisible** (`rot_traj` removes the constant offset it fixes).
-   Not built. [`docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md).
+3. ⛔ **NEGATIVE (built + tested) — geometry anchor-attitude search.** A gated multi-frame
+   depth+silhouette SO(3) search (`attitude_fix.py`, since removed). The mug (the target)
+   never fires — `rel_gain` 0.03–0.04 — because its only attitude cue (the handle) is
+   grasped/occluded (object-mask area swings 4× across the clip), so no geometric method
+   carries an attitude signal; and the search false-fires on revolution objects (bottle,
+   116°) — the wrong-basin trap the ICP core deliberately avoids. Not achievable on this
+   data. [`docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md).
 4. ⛔ **NEGATIVE — texture re-projection.** Baking the real clip texture onto the mesh is
    smeared (needs the accurate rotations it's meant to help produce — chicken-egg),
    circular (self-consistent with the baking pose), and where it adds discrimination
