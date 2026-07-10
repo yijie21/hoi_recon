@@ -68,6 +68,53 @@ not — so the learned core scores a superb chamfer while its azimuth flickers.
 because even flip-aware rotation smoothing is a small net loss on the learned poses. The
 depth-basin and grasp-rigidity experiment modules were removed (findings recorded here).
 
+## Item 3 — geometry anchor-attitude search (diagnosed, not built)
+
+Target: the ICP core's *constant* anchor-attitude error on shape-asymmetric objects
+(the mug's absolute attitude `rot_abs` is 138.9° despite a good `rot_traj` of 22.6° — a
+wrong-basin constant offset). A go/no-go over a 400-hypothesis SO(3) grid, scoring each
+by depth-cloud fit and evaluating its `rot_abs` vs GT, showed:
+
+- **The errors are correctable in principle** — a constant rotation exists that takes the
+  mug to `rot_abs` 12.2° and the spatula to 42.9° (from 158.4°).
+- **Multi-frame depth+silhouette only *partially* finds it** where the shape is
+  discriminative: the mug's handle drives depth to `rot_abs` 45.6° (a large real fix from
+  138.9°), but depth is **fooled** on the thin spatula (best 154.6° vs 42.9° achievable)
+  and on the near-symmetric masher (item 2's `basin_changed=0`), and is fundamentally
+  blind on revolution objects (vase/bottle).
+- **The whole fix is gate-invisible** — `rot_traj` (the acceptance metric) removes exactly
+  the constant offset item 3 fixes, so the gate never moves; item 3 improves *absolute*
+  reconstruction quality (the object faces the right way) but not the leaderboard.
+
+Narrow, gate-invisible payoff on ≈1 clip → not built into the pipeline (user steer:
+validate item 1 at scale instead, item 6). The diagnostic scripts were scratch-only.
+
+## Item 6 — scale validation (in progress)
+
+Selected 6 more single-object HIT clips (same categories, different sequences/instances)
+via motion+FOV probing → `selection_scale.json` (12-clip `selection_all.json`). Ran
+`icpjgr` + `any6dp` on all 12. Two clips are non-comparisons: spatula 003024 skipped
+(target off-screen at frame 0, can't seed SAM2); masher 002334 is a bad SAM-3D mesh
+(canonical-ICP 65 mm — a stage-1/3 failure) so both arms fail (icpjgr 171.5, any6dp 164.7).
+The remaining **11 scored clips** (5 new + 6 frozen):
+
+| new clip | icpjgr chamfer | any6dp chamfer | factor |
+|---|---|---|---|
+| bottle_bbq 002044 | 7.1 | **2.8** | 2.5× |
+| mug_white 002107 | 6.9 | **1.9** | 3.6× |
+| mug_white 002113 | 6.9 | **2.3** | 3.0× |
+| spatula_red 003010 | 23.4 | **3.9** | 6.0× |
+
+**The placement win generalizes and strengthens.** any6dp wins chamfer on **9/11** clips
+(the 2 losses are the cube and the near-symmetric masher 002349). New-clip median chamfer
+**7.1 → 2.8**; all-clip mean (excluding the shared-mesh failure) **13.7 → 8.0 mm**. On the
+fresh clips the win is *larger* than on the frozen bench (up to 6× on spatula 003010).
+
+**The Pareto trade-off holds.** any6dp regresses rotation (`rot_traj` p90) on **6/11** —
+exactly the symmetric / in-hand-rotated objects where icpjgr's rotation priors do the
+work. So the 6-clip finding is confirmed at 2× scale across 4 object categories and 6
+sequences: the learned core is decisively **placement-superior**, at a **rotation** cost.
+
 ## Files
 - Item 1 (kept): `render_and_compare/hoi_recon/{object_any6d.py, temporal_pose.py}`,
   `stages/stage4_align.py` (learned branch), `joint_grasp.py` (`freeze_object`),

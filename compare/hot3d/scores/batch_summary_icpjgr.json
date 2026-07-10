@@ -1,5 +1,23 @@
 [
  {
+  "clip": "clip-002034",
+  "cat": "bottle_bbq",
+  "chamfer_mm": 9.9,
+  "centroid_cm": 1.66,
+  "rot_traj_med": 38.1,
+  "rot_traj_p90": 72.9,
+  "rot_abs_med": 170.3
+ },
+ {
+  "clip": "clip-001970",
+  "cat": "mug_white",
+  "chamfer_mm": 7.0,
+  "centroid_cm": 2.05,
+  "rot_traj_med": 22.6,
+  "rot_traj_p90": 76.5,
+  "rot_abs_med": 138.9
+ },
+ {
   "clip": "clip-002500",
   "cat": "vase",
   "chamfer_mm": 17.7,
@@ -18,13 +36,13 @@
   "rot_abs_med": 36.9
  },
  {
-  "clip": "clip-002034",
-  "cat": "bottle_bbq",
-  "chamfer_mm": 9.9,
-  "centroid_cm": 1.66,
-  "rot_traj_med": 38.1,
-  "rot_traj_p90": 72.9,
-  "rot_abs_med": 170.3
+  "clip": "clip-001990",
+  "cat": "spatula_red",
+  "chamfer_mm": 21.2,
+  "centroid_cm": 4.26,
+  "rot_traj_med": 29.4,
+  "rot_traj_p90": 42.6,
+  "rot_abs_med": 158.4
  },
  {
   "clip": "clip-001964",
@@ -36,21 +54,48 @@
   "rot_abs_med": 154.5
  },
  {
-  "clip": "clip-001970",
-  "cat": "mug_white",
-  "chamfer_mm": 7.0,
-  "centroid_cm": 2.05,
-  "rot_traj_med": 22.6,
-  "rot_traj_p90": 76.5,
-  "rot_abs_med": 138.9
+  "clip": "clip-002044",
+  "cat": "bottle_bbq",
+  "chamfer_mm": 7.1,
+  "centroid_cm": 2.12,
+  "rot_traj_med": 19.6,
+  "rot_traj_p90": 43.7,
+  "rot_abs_med": 83.9
  },
  {
-  "clip": "clip-001990",
+  "clip": "clip-002107",
+  "cat": "mug_white",
+  "chamfer_mm": 6.9,
+  "centroid_cm": 2.12,
+  "rot_traj_med": 47.7,
+  "rot_traj_p90": 68.8,
+  "rot_abs_med": 139.9
+ },
+ {
+  "clip": "clip-002113",
+  "cat": "mug_white",
+  "chamfer_mm": 6.9,
+  "centroid_cm": 2.51,
+  "rot_traj_med": 67.0,
+  "rot_traj_p90": 156.7,
+  "rot_abs_med": 156.8
+ },
+ {
+  "clip": "clip-002334",
+  "cat": "potato_masher",
+  "chamfer_mm": 171.5,
+  "centroid_cm": 24.0,
+  "rot_traj_med": 37.1,
+  "rot_traj_p90": 77.4,
+  "rot_abs_med": 112.5
+ },
+ {
+  "clip": "clip-003010",
   "cat": "spatula_red",
-  "chamfer_mm": 21.2,
-  "centroid_cm": 4.26,
-  "rot_traj_med": 29.4,
-  "rot_traj_p90": 42.6,
-  "rot_abs_med": 158.4
+  "chamfer_mm": 23.4,
+  "centroid_cm": 8.04,
+  "rot_traj_med": 9.2,
+  "rot_traj_p90": 31.0,
+  "rot_abs_med": 141.6
  }
 ]
