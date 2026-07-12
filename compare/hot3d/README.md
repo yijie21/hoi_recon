@@ -123,7 +123,7 @@ compare/hot3d/
 ├── README.md                  # this overall summary
 ├── docs/                      # REFLECTION.md (full journey), T4_RESULTS.md, T4_NOTES.md, T5_NOTES.md
 ├── scores/                    # LEADERBOARD.md, BEST_ARM, batch_summary_<arm>.json
-├── overlays/                  # rc_vs_gt_<clip>_<method>.mp4, hort_*, gt_overlay_*
+├── overlays/                  # curated best-per-clip rc_vs_gt_<clip>_<method>.mp4 (5 fpauto + icpjgr masher)
 ├── make_rc_input.py           # adapter: Aria fisheye -> pinhole RGB + ray-cast GT depth
 ├── run_batch.py               # run a pipeline arm on the 6-clip bench, score, overlay
 ├── gt_pose_eval_hot3d.py      # score a run vs mocap GT (chamfer/centroid/rot_traj/shape)

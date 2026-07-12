@@ -185,11 +185,21 @@ The roadmap above is fully resolved; these are the *unexplored* threads, highest
 first. **Do not re-run the items 2–4 approaches** (rotation via temporal/attitude/texture
 priors — exhausted; see T5_NOTES).
 
-1. **Swap the learned stage-4 core.** `any6dp` uses Any6D; the T4 bake-off found
-   **FoundationPose `register_each`** even stronger per-frame (mug rot ~3°). Reuse the exact
-   `pose_core: learned` wiring (subprocess handoff + freeze + temporal layer) with an FP
-   entry → a `fp-p` arm. `compare/hot3d/run_any6d_hot3d.py` is the template; FP already has a
-   subprocess entry (`render_and_compare/scripts/subprocess_entries/FoundationPose/`).
+1. ✅ **DONE — Swapped the learned stage-4 core to FoundationPose (arm `fpauto`).** The
+   first arm to beat `any6dp` on **both** axes: mean chamfer **8.2 mm** (any6dp 11.5) and
+   mean rot_traj p90 **88.6°** (any6dp 111.6), winning placement 5/6 and rotation 4/6.
+   Two levers Any6D leaves on the table: (a) a **uniform** metric mesh (the icpjgr global
+   scale) instead of Any6D's shape-distorting per-axis OBB rescale, and (b) FP **track**
+   mode's temporally-continuous, flip-free rotation (spatula 11°, mug 26° — the flip-free
+   rotation the T5 campaign deemed unreachable). Per-clip **drift-gated selector**: use
+   track's rotation where it holds (median‖track_t−reg_t‖<5cm; a clean 13× margin), else
+   fall back to drift-free register_each. Driver `compare/hot3d/run_fp_hot3d.py` (env
+   forehoi5090); temporal jitter-layer OFF (it hurts FP). Full campaign:
+   [`docs/T6_NOTES.md`](compare/hot3d/docs/T6_NOTES.md). Three-way Pareto now: `icpjgr`
+   (rotation-robust worst-case), `any6dp` (mug placement), `fpauto` (best overall placement
+   + best learned rotation where the tracker holds). *Not yet wired as a one-command
+   `pose_core: learned/method: fp` pipeline arm — the standalone driver produces the scored
+   track; see T6 "follow-ups".*
 2. **Cross-dataset validation.** DexYCB / HO-Cap have **real sensor depth + static cams** —
    test whether the placement win + Pareto finding hold off HOT3D's *rendered* depth. Would
    substantially harden the central finding; the harness (`gt_pose_eval` + `run_batch`) is

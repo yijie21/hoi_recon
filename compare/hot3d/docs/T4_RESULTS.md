@@ -23,12 +23,12 @@ metric depth. Whether a method *uses* that signal cleanly predicts the result.
 | puzzle_toy | 18.5 | (unscaled) | 391 |
 
 - **HORT** (mono single-image): no metric scale, no temporal consistency,
-  LangSAM grabbed the wrong object on 4/6. Overlays `hort_*.mp4`.
+  LangSAM grabbed the wrong object on 4/6.
 - **ForeHOI** (feed-forward video): *canonical shape* is excellent (shape-ICP
   bottle 2.7, masher 3.3, vase 7.4, spatula 16.3 mm) but its wild path
   self-estimates depth with DepthAnything3 (off ~2.5× on egocentric HOT3D), so
   a well-shaped object lands at the wrong 3D location. Shape good, placement
-  bad. Overlays `rc_vs_gt_hot3d_{vase,potato_masher}_forehoi.mp4`.
+  bad.
 
 ### Group B — consume the calibrated RGB-D → per-frame pose STRONGER than icpjgr
 

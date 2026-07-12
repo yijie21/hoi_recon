@@ -2,100 +2,55 @@
  {
   "clip": "clip-002034",
   "cat": "bottle_bbq",
-  "chamfer_mm": 5.5,
-  "centroid_cm": 1.17,
-  "rot_traj_med": 7.4,
-  "rot_traj_p90": 21.5,
-  "rot_abs_med": 4.6
+  "chamfer_mm": 5.4,
+  "centroid_cm": 1.16,
+  "rot_traj_med": 5.5,
+  "rot_traj_p90": 12.0,
+  "rot_abs_med": 7.1
  },
  {
   "clip": "clip-001970",
   "cat": "mug_white",
-  "chamfer_mm": 3.4,
-  "centroid_cm": 0.71,
-  "rot_traj_med": 26.9,
-  "rot_traj_p90": 72.9,
-  "rot_abs_med": 93.2
+  "chamfer_mm": 3.2,
+  "centroid_cm": 0.65,
+  "rot_traj_med": 54.8,
+  "rot_traj_p90": 63.6,
+  "rot_abs_med": 120.3
  },
  {
   "clip": "clip-002500",
   "cat": "vase",
-  "chamfer_mm": 6.6,
-  "centroid_cm": 1.31,
-  "rot_traj_med": 7.6,
-  "rot_traj_p90": 95.7,
-  "rot_abs_med": 7.5
+  "chamfer_mm": 4.8,
+  "centroid_cm": 1.47,
+  "rot_traj_med": 29.5,
+  "rot_traj_p90": 154.2,
+  "rot_abs_med": 78.9
  },
  {
   "clip": "clip-002349",
   "cat": "potato_masher",
-  "chamfer_mm": 19.7,
-  "centroid_cm": 3.93,
-  "rot_traj_med": 46.4,
-  "rot_traj_p90": 167.0,
-  "rot_abs_med": 48.7
+  "chamfer_mm": 16.5,
+  "centroid_cm": 3.8,
+  "rot_traj_med": 79.5,
+  "rot_traj_p90": 162.4,
+  "rot_abs_med": 147.9
  },
  {
   "clip": "clip-001990",
   "cat": "spatula_red",
-  "chamfer_mm": 12.8,
-  "centroid_cm": 4.73,
-  "rot_traj_med": 26.1,
-  "rot_traj_p90": 142.5,
-  "rot_abs_med": 30.8
+  "chamfer_mm": 12.1,
+  "centroid_cm": 4.85,
+  "rot_traj_med": 29.6,
+  "rot_traj_p90": 147.6,
+  "rot_abs_med": 37.9
  },
  {
   "clip": "clip-001964",
   "cat": "puzzle_toy",
-  "chamfer_mm": 21.2,
-  "centroid_cm": 2.78,
-  "rot_traj_med": 119.0,
-  "rot_traj_p90": 170.0,
-  "rot_abs_med": 157.0
- },
- {
-  "clip": "clip-002044",
-  "cat": "bottle_bbq",
-  "chamfer_mm": 2.8,
-  "centroid_cm": 0.52,
-  "rot_traj_med": 2.2,
-  "rot_traj_p90": 5.1,
-  "rot_abs_med": 8.1
- },
- {
-  "clip": "clip-002107",
-  "cat": "mug_white",
-  "chamfer_mm": 1.9,
-  "centroid_cm": 0.65,
-  "rot_traj_med": 55.4,
-  "rot_traj_p90": 115.2,
-  "rot_abs_med": 62.9
- },
- {
-  "clip": "clip-002113",
-  "cat": "mug_white",
-  "chamfer_mm": 2.3,
-  "centroid_cm": 0.98,
-  "rot_traj_med": 26.6,
-  "rot_traj_p90": 84.2,
-  "rot_abs_med": 132.8
- },
- {
-  "clip": "clip-002334",
-  "cat": "potato_masher",
-  "chamfer_mm": 164.7,
-  "centroid_cm": 23.18,
-  "rot_traj_med": 28.4,
-  "rot_traj_p90": 97.9,
-  "rot_abs_med": 146.2
- },
- {
-  "clip": "clip-003010",
-  "cat": "spatula_red",
-  "chamfer_mm": 3.9,
-  "centroid_cm": 0.59,
-  "rot_traj_med": 3.5,
-  "rot_traj_p90": 6.7,
-  "rot_abs_med": 10.3
+  "chamfer_mm": 23.0,
+  "centroid_cm": 3.36,
+  "rot_traj_med": 106.3,
+  "rot_traj_p90": 152.3,
+  "rot_abs_med": 139.0
  }
 ]

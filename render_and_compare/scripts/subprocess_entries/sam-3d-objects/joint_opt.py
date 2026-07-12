@@ -69,6 +69,16 @@ def main():
                     help="hand-silhouette precision vs the SAM2 hand mask")
     ap.add_argument("--w_accel", type=float, default=1.0,
                     help="acceleration (2nd-difference) smoothness on hand+object motion")
+    ap.add_argument("--freeze_object", action="store_true",
+                    help="hold the object 6D fixed (frozen-object arms: any6dp/fpauto/hand-"
+                         "reproj). Only the hand is optimized against kp2d + hand-silhouette + "
+                         "soft contact to the fixed object track; the object render is skipped.")
+    ap.add_argument("--w_contact", type=float, default=5.0,
+                    help="pull hand contact verts onto the object surface. Lower it (image-"
+                         "first) so contact stays SOFT and does not drag the hand off the pixels.")
+    ap.add_argument("--w_pen", type=float, default=30.0,
+                    help="one-sided non-penetration (hand stays outside the object); a safety "
+                         "constraint kept firm even in image-first mode.")
     a = ap.parse_args()
 
     import torch
@@ -171,12 +181,15 @@ def main():
     g6 = g6.requires_grad_(True); p6 = p6.clone().requires_grad_(True)
     transl = transl0.clone().requires_grad_(True)
     betas = betas0.clone().requires_grad_(True)
-    o_r6 = matrix_to_rotation_6d(torch.tensor(Pobj[:, :3, :3], device=dev)).requires_grad_(True)
-    o_t = torch.tensor(Pobj[:, :3, 3], device=dev).clone().requires_grad_(True)
+    # object 6D — frozen (constant) when --freeze_object, else optimized. When frozen the
+    # object rides its input track and only the hand moves against it (hand-reprojection).
+    o_r6 = matrix_to_rotation_6d(torch.tensor(Pobj[:, :3, :3], device=dev)).requires_grad_(not a.freeze_object)
+    o_t = torch.tensor(Pobj[:, :3, 3], device=dev).clone().requires_grad_(not a.freeze_object)
     o_t0 = torch.tensor(Pobj[:, :3, 3], device=dev)   # image-grounded init (transl prior)
     o_r60 = matrix_to_rotation_6d(torch.tensor(Pobj[:, :3, :3], device=dev))  # rot prior
+    hand_group = [g6, transl] if a.freeze_object else [g6, transl, o_r6, o_t]
     opt = torch.optim.Adam([
-        {"params": [g6, transl, o_r6, o_t], "lr": 0.006},
+        {"params": hand_group, "lr": 0.006},
         {"params": [p6, betas], "lr": 0.003}], )
 
     # object renderers
@@ -246,24 +259,27 @@ def main():
             hv = mano_fwd(g6, p6, betas)[0] + transl[:, None]
             ow, R = obj_world(ti)
             nw = torch.einsum("nij,vj->nvi", R, ofn)
-            # object silhouette + photometric
-            cams = cameras_from_opencv_projection(R=R, tvec=o_t[ti],
-                camera_matrix=Kt[None].expand(len(ti), -1, -1),
-                image_size=torch.tensor([[Hh, Ww]], device=dev).expand(len(ti), -1).float())
-            meshes = omesh.extend(len(ti))
-            sil = silsh(MeshRasterizer(cameras=cams, raster_settings=sil_rs)(meshes), meshes, cameras=cams)[..., 3]
-            # occlusion-robust silhouette: DON'T-CARE IoU — render-over-occluder
-            # pixels excluded from the union (plain IoU when no occluder; under
-            # occlusion neither pulled into the visible sliver nor rewarded for
-            # inflating over the hand region)
-            mk = omask[ti]; hk = hmask[ti]
-            inter = (sil*mk).sum((1,2))
-            union = (sil + mk - sil*mk - sil*(1-mk)*hk).sum((1,2))
-            l_sil = (1 - inter / union.clamp(min=1)).mean()
-            img = MeshRenderer(rasterizer=MeshRasterizer(cameras=cams, raster_settings=pho_rs),
-                               shader=SoftPhongShader(device=dev, cameras=cams, lights=lights, blend_params=bp))(meshes)
-            w = (img[...,3].detach()*mk)[...,None]
-            l_pho = ((img[...,:3]-rgb[ti]).abs()*w).sum()/w.sum().clamp(min=1)
+            # object silhouette + photometric — only when the object is being optimized.
+            # Frozen object gets no grad from these, so skip the (expensive) object render.
+            l_sil = torch.zeros((), device=dev); l_pho = torch.zeros((), device=dev)
+            if not a.freeze_object:
+                cams = cameras_from_opencv_projection(R=R, tvec=o_t[ti],
+                    camera_matrix=Kt[None].expand(len(ti), -1, -1),
+                    image_size=torch.tensor([[Hh, Ww]], device=dev).expand(len(ti), -1).float())
+                meshes = omesh.extend(len(ti))
+                sil = silsh(MeshRasterizer(cameras=cams, raster_settings=sil_rs)(meshes), meshes, cameras=cams)[..., 3]
+                # occlusion-robust silhouette: DON'T-CARE IoU — render-over-occluder
+                # pixels excluded from the union (plain IoU when no occluder; under
+                # occlusion neither pulled into the visible sliver nor rewarded for
+                # inflating over the hand region)
+                mk = omask[ti]; hk = hmask[ti]
+                inter = (sil*mk).sum((1,2))
+                union = (sil + mk - sil*mk - sil*(1-mk)*hk).sum((1,2))
+                l_sil = (1 - inter / union.clamp(min=1)).mean()
+                img = MeshRenderer(rasterizer=MeshRasterizer(cameras=cams, raster_settings=pho_rs),
+                                   shader=SoftPhongShader(device=dev, cameras=cams, lights=lights, blend_params=bp))(meshes)
+                w = (img[...,3].detach()*mk)[...,None]
+                l_pho = ((img[...,:3]-rgb[ti]).abs()*w).sum()/w.sum().clamp(min=1)
             # hand-silhouette precision vs the SAM2 hand mask: rendered hand pixels
             # on the background are penalized; pixels on the object mask are
             # don't-care (fingers may be occluded BY the object); the hand mask is
@@ -294,7 +310,8 @@ def main():
                 dall = torch.cdist(hv[t], ow[k]); idx = dall.argmin(1)
                 s2 = ((hv[t]-ow[k][idx])*nw[k][idx]).sum(1)
                 lp = lp + torch.relu(-s2).pow(2).mean()
-            cl = (3.0*l_sil + 1.0*l_pho + a.w_hsil*l_hsil + 5.0*lc/len(ti) + 30.0*lp/len(ti))
+            cl = (3.0*l_sil + 1.0*l_pho + a.w_hsil*l_hsil
+                  + a.w_contact*lc/len(ti) + a.w_pen*lp/len(ti))
             cl.backward()
         opt.step()
         if it % 30 == 0 or it == a.iters-1:

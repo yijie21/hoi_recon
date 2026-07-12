@@ -6,6 +6,52 @@ reconstruction **pipeline**, a set of third-party **methods** revived for
 comparison, and the **study** that benchmarks them all against mocap-grade ground
 truth on HOT3D.
 
+## ⭐ Best method (full 4D HOI) — how to run it
+
+The best reconstruction pairs the **best object** track with the **best hand**, then renders
+both backprojected together:
+
+- **Object → `fpauto`** (FoundationPose auto: `track`+`register_each`, drift-gated). Best object
+  backprojection — beats the learned `any6dp` on **both** placement (mean chamfer **8.2 vs 11.5 mm**)
+  and rotation (mean rot_traj-p90 **88.6 vs 111.6°**). Exception: on sustained in-hand-rotated
+  symmetric objects (the potato masher) `icpjgr` still owns rotation — use it there.
+  Detail: [`compare/hot3d/docs/T6_NOTES.md`](compare/hot3d/docs/T6_NOTES.md).
+- **Hand → the hand-reprojection optimizer** (`joint_opt.py --freeze_object`, kp2d-aligned). Best
+  hand backprojection — the MANO hand lands on the observed hand at **1.9–3.8 px** 2D reprojection
+  (from 5–108 px before), across all 6 clips.
+  Detail: [`render_and_compare/docs/adr/0001-hand-reprojection-optimizer.md`](render_and_compare/docs/adr/0001-hand-reprojection-optimizer.md).
+
+**Overlays** (`compare/hot3d/overlays/`): `hoi_best_<clip>.mp4` = [ original | object | object+hand ];
+`hand_cmp_<clip>.mp4` = hand before/after; `rc_vs_gt_<clip>_*.mp4` = object vs mocap GT.
+
+**Run it on a HOT3D clip** (envs: `rc5090` pipeline/eval/overlay, `forehoi5090` FoundationPose,
+`sam3d5090` SAM-3D + hand optimizer). From `compare/hot3d/`, e.g. the bottle clip
+(`cat=bottle_bbq num=002034`, rc_input `002034_bottle_bbq`, clip `clip-002034`):
+
+```bash
+RC5=/workspace/miniconda3/envs/rc5090/bin/python
+FH5=/workspace/miniconda3/envs/forehoi5090/bin/python
+RUN=../../render_and_compare/runs/hot3d_bottle_bbq_002034_icpjgr
+FP=../../render_and_compare/runs/hot3d_bottle_bbq_002034_fpauto
+RC=/workspace/datasets/hot3d/rc_input_002034_bottle_bbq
+
+# 1. Full pipeline once (arm icpjgr): produces the hand stages + the SAM-3D mesh every arm shares.
+$RC5 run_batch.py selection_fixed.json --arm icpjgr \
+     --config ../../render_and_compare/configs/real_forehoi_icp_joint_grasp.yaml
+# 2. Best OBJECT — FoundationPose auto on the icpjgr uniform-metric mesh (env forehoi5090).
+$FH5 run_fp_hot3d.py $RC $RUN $FP --mode auto
+# 3. Best HAND — freeze the object, align MANO to kp2d + hand-silhouette (spawns sam3d5090).
+$RC5 run_hand_reproj.py $RUN $RC
+# 4. Combined HOI overlay: best object (fpauto) + best hand, splatted together.
+$RC5 make_hoi_best_overlay.py $FP $RUN overlays/hoi_best_bottle_bbq_002034.mp4
+# 5. Score vs mocap GT — object (chamfer/rot) and hand (chamfer/2D-reproj).
+$RC5 gt_pose_eval_hot3d.py $RC $FP
+$RC5 gt_hand_eval_hot3d.py /workspace/datasets/hot3d/clips/clip-002034 $RC \
+     before=$RUN after=$RUN/hand_reproj_opt/out.npz
+```
+
+For the potato masher, use `$RUN` (icpjgr) as the object source in steps 4–5 instead of `$FP`.
+
 ## Start here
 
 | If you want… | Read |
@@ -16,7 +62,8 @@ truth on HOT3D.
 | The head-to-head numbers | [`compare/hot3d/scores/LEADERBOARD.md`](compare/hot3d/scores/LEADERBOARD.md), [`compare/hot3d/docs/T4_RESULTS.md`](compare/hot3d/docs/T4_RESULTS.md) |
 | To run the pipeline | [`render_and_compare/README.md`](render_and_compare/README.md) + [`RUN_REAL.md`](render_and_compare/RUN_REAL.md) |
 
-**TL;DR of the findings:** our optimization pipeline (`render_and_compare`, best arm
+**TL;DR of the findings** (superseded for *use* by the ⭐ best-method box above; kept as the
+campaign narrative): our optimization pipeline (`render_and_compare`, best integrated arm
 `icpjgr`) cut mean chamfer 3.2× on HOT3D and never fails catastrophically. A learned
 RGB-D pose core (Any6D) is now integrated *inside* the pipeline (arm `any6dp`, one run) —
 it wins placement decisively (chamfer better on **9/11 clips**, new-clip median 7.1→2.8
