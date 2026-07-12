@@ -63,6 +63,22 @@ for entry in "${REPOS[@]}"; do
   fi
 done
 
+# Any6D (taeyeopl/Any6D) — the FoundationPose/Any6D core for the fpauto object arm (and the
+# any6dp learned core). It is imported directly (not a subprocess entry) and lives at the OUTER
+# repo root ("<repo>/any6d"), where run_fp_hot3d.py / object_any6d.py expect it. It bundles
+# foundationpose/; build its CUDA exts (mycpp, bundlesdf/mycuda) + fetch FP weights per the
+# forehoi5090 recipe (REPRODUCE.md "Best method").
+if should_clone any6d; then
+  A6="$ROOT/../any6d"
+  if [ -d "$A6/.git" ]; then
+    echo "[skip] any6d already cloned"; ok+=("any6d")
+  elif git clone $DEPTH https://github.com/taeyeopl/Any6D "$A6" 2>/dev/null; then
+    echo "[clone] any6d  ->  $A6  (build FoundationPose CUDA exts + FP weights next)"; ok+=("any6d")
+  else
+    echo "  !! any6d clone failed — clone taeyeopl/Any6D manually into $A6"; fail+=("any6d")
+  fi
+fi
+
 # Install this repo's subprocess entry scripts into the cloned repos. The pipeline
 # invokes them via `conda run -n <sam3d_env> python third_party/<repo>/<script>.py`
 # (they must live inside the repo: they import its packages and run with cwd=repo).

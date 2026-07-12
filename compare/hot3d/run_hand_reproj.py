@@ -22,11 +22,28 @@ import sys
 
 import numpy as np
 
-REPO = "/workspace/code/hoi_recon"
+# repo root derived from this file (compare/hot3d/run_hand_reproj.py) so the driver is
+# portable to any clone location, not just /workspace/code/hoi_recon.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 JOINT_OPT = f"{REPO}/render_and_compare/third_party/sam-3d-objects/joint_opt.py"
-# chumpy-free MANO (a direct file path — smplx loads it without needing chumpy in sam3d5090;
-# created from MANO_RIGHT.pkl via scripts, see ADR-0001 notes).
-MANO_DIR = f"{REPO}/render_and_compare/checkpoints/mano/MANO_RIGHT_np.pkl"
+MANO_ROOT = f"{REPO}/render_and_compare/checkpoints/mano"
+# chumpy-free MANO (a direct file path — smplx loads it without needing chumpy in sam3d5090).
+MANO_DIR = f"{MANO_ROOT}/MANO_RIGHT_np.pkl"
+CONVERT_MANO = f"{REPO}/render_and_compare/scripts/convert_mano_chumpy_free.py"
+
+
+def _ensure_np_mano():
+    """Reproducibility self-heal: create the chumpy-free MANO_RIGHT_np.pkl from the placed
+    MANO_RIGHT.pkl if it is missing (this driver runs in an env with chumpy, e.g. rc5090)."""
+    if os.path.exists(MANO_DIR):
+        return
+    orig = f"{MANO_ROOT}/MANO_RIGHT.pkl"
+    if not os.path.exists(orig):
+        raise SystemExit(f"MANO not found: place the license-gated MANO_RIGHT.pkl at {orig} "
+                         "(https://mano.is.tue.mpg.de), then re-run.")
+    print(f"[hand_reproj] converting MANO -> chumpy-free ({CONVERT_MANO})")
+    import subprocess as _sp
+    _sp.run([__import__("sys").executable, CONVERT_MANO, MANO_ROOT], check=True)
 
 
 def main():
@@ -49,6 +66,7 @@ def main():
     rc = os.path.abspath(a.rc_input.rstrip("/"))
     out_dir = os.path.abspath(a.out_dir or os.path.join(run, "hand_reproj_opt"))
     os.makedirs(out_dir, exist_ok=True)
+    _ensure_np_mano()
 
     s2 = np.load(f"{run}/stage2_hand/arrays.npz")
     s6 = np.load(f"{run}/stage6_rectify/arrays.npz")

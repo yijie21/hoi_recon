@@ -45,7 +45,13 @@ import cv2
 import numpy as np
 import trimesh
 
-ANY6D = "/workspace/code/hoi_recon/any6d"
+# any6d (taeyeopl/Any6D clone) at the repo root; derived from this file for clone portability.
+# Set up by scripts/setup_third_party.sh (see REPRODUCE.md "Best method"); env forehoi5090.
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ANY6D = os.environ.get("ANY6D_DIR", os.path.join(_REPO, "any6d"))
+if not os.path.isdir(ANY6D):
+    raise SystemExit(f"Any6D not found at {ANY6D}. Clone taeyeopl/Any6D there (or set "
+                     "$ANY6D_DIR) and build its FoundationPose CUDA exts — see REPRODUCE.md.")
 sys.path.insert(0, ANY6D)
 os.chdir(ANY6D)  # predictors resolve weights relative to their own dir
 

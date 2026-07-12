@@ -1,5 +1,37 @@
 # Reproducing the real (GPU) pipeline on another machine
 
+## ⭐ Best method (current) — full 4D HOI (object + hand)
+
+The current best result pairs the best **object** track with the best **hand**:
+**object → `fpauto`** (FoundationPose auto, drift-gated) and **hand → the hand-reprojection
+optimizer** (`joint_opt.py --freeze_object`, kp2d-aligned). Numbers + the exact copy-paste run
+recipe live at the top of the repo [`README.md`](../README.md); design in
+[`docs/adr/0001-hand-reprojection-optimizer.md`](docs/adr/0001-hand-reprojection-optimizer.md)
+and [`../compare/hot3d/docs/T6_NOTES.md`](../compare/hot3d/docs/T6_NOTES.md).
+
+**Prerequisites on a fresh clone** (once):
+
+1. **Conda envs** (Blackwell / sm_120): `rc5090` (pipeline+eval+overlays; `scripts/setup_real.sh`),
+   `sam3d5090` (SAM-3D mesh **and** the hand optimizer;
+   [`scripts/subprocess_entries/sam-3d-objects/BLACKWELL_ENV.md`](scripts/subprocess_entries/sam-3d-objects/BLACKWELL_ENV.md)),
+   `forehoi5090` (FoundationPose/Any6D core = clone of `sam3d5090` + Any6D's FoundationPose CUDA
+   exts `mycpp` + `bundlesdf/mycuda` built for sm_120).
+2. **Checkpoints** — `scripts/download_checkpoints.sh` (MoGe, SAM2, WiLoR, HaMeR, SAM-3D).
+3. **MANO** (license-gated) — place `MANO_RIGHT.pkl` at `checkpoints/mano/`. The hand driver
+   auto-creates the chumpy-free `MANO_RIGHT_np.pkl` it needs (sam3d5090 has no chumpy); or run
+   `python scripts/convert_mano_chumpy_free.py` yourself.
+4. **Third-party** — `scripts/setup_third_party.sh` clones the method repos **and deploys the
+   tracked subprocess entries** (including the `--freeze_object` `joint_opt.py` — this is why the
+   edit lives in `scripts/subprocess_entries/…`, not the gitignored `third_party/`). For `fpauto`
+   also clone **Any6D** at the repo root and build its FP CUDA exts: run `setup_third_party.sh`
+   (it now clones `any6d`), then build per the `forehoi5090` recipe + fetch the FP weights.
+5. **HOT3D data** — bench clips under `/workspace/datasets/hot3d/` (adapter `compare/hot3d/make_rc_input.py`).
+
+Then run the README recipe. The single-command `combined.yaml` pipeline below is the older
+best-of-both arm, kept for reference.
+
+---
+
 End goal — **the best-performance configuration** (the result in `runs/grab_combined`):
 
 ```bash
