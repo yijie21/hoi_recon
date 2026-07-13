@@ -1,5 +1,14 @@
 # T4 — learned-method bake-off vs the pipeline (icpjgr) on HOT3D
 
+> **In plain terms.** This is the actual bake-off: the hand-built pipeline (`icpjgr`) compared
+> against four learned pose-estimation methods (HORT, ForeHOI, Any6D, FoundationPose) on the same
+> video clips and 3D meshes. Methods that ignore the depth-camera data (HORT, ForeHOI) lost
+> badly. Methods that use it (Any6D, FoundationPose) actually beat the hand-built pipeline at
+> placing the object correctly — but were less stable, sometimes drifting away or flipping the
+> object's rotation. Conclusion: the best design combines a learned method's accuracy with the
+> hand-built pipeline's stability, which is what the later `any6dp` and `fpauto` arms do. Method
+> codes decoded in [GLOSSARY.md](../../../GLOSSARY.md).
+
 Five learned methods were revived on Blackwell (sm_120) and compared against
 our best pipeline arm **icpjgr** on the frozen 6-clip HOT3D bench, scored by
 the same mocap-GT eval (`gt_pose_eval_hot3d.py`). All comparisons are

@@ -1,5 +1,15 @@
 # T5 — Learned pose core *inside* the pipeline (item 1) + the rotation Pareto finding (item 2)
 
+> **In plain terms.** This document covers wiring a learned pose estimator (Any6D) directly into
+> the pipeline as a new arm, `any6dp`, plus four separate follow-on attempts to also fix that
+> arm's weak rotation accuracy. The integration worked — `any6dp` places the object more
+> accurately than the hand-built `icpjgr` pipeline on most clips, confirmed on 12 test clips at
+> larger scale. But every attempt to also give it `icpjgr`'s rotation robustness failed for a
+> structural reason: placement accuracy and rotation accuracy come from the same per-frame fit,
+> so a method trades one for the other rather than getting both — a real "Pareto frontier," not a
+> bug to fix (later resolved by a different method, `fpauto`, in T6). Method codes decoded in
+> [GLOSSARY.md](../../../GLOSSARY.md).
+
 Roadmap items 1–2 from `BEST_STRATEGY.md` "What's still to improve". Item 1 shipped a
 real win; item 2 is a comprehensively-established negative result. Both are recorded
 here because the negative result is the more important scientific outcome.

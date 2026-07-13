@@ -1,64 +1,40 @@
-# HOT3D 6-clip leaderboard
+# HOT3D results — best 4D hand-object reconstruction
 
-| arm | clip | chamfer mm | centroid cm | rot_traj | p90 | rot_abs |
-|---|---|---|---|---|---|---|
-| any6d | bottle_bbq | 5.2 | 1.14 | 4.5 | 171.4 | 4.8 |
-| any6d | mug_white | 3.4 | 0.75 | 27.7 | 73.0 | 92.9 |
-| any6d | potato_masher | 12.0 | 3.81 | 77.4 | 172.8 | 74.0 |
-| any6d | puzzle_toy | 21.3 | 2.71 | 130.1 | 173.3 | 118.4 |
-| any6d | spatula_red | 9.6 | 5.61 | 30.1 | 153.4 | 21.5 |
-| any6d | vase | 6.4 | 1.29 | 8.5 | 93.1 | 7.6 |
-| any6dp | bottle_bbq | 5.4 | 1.16 | 5.5 | 12.0 | 7.1 |
-| any6dp | mug_white | 3.2 | 0.65 | 54.8 | 63.6 | 120.3 |
-| any6dp | vase | 4.8 | 1.47 | 29.5 | 154.2 | 78.9 |
-| any6dp | potato_masher | 16.5 | 3.8 | 79.5 | 162.4 | 147.9 |
-| any6dp | spatula_red | 12.1 | 4.85 | 29.6 | 147.6 | 37.9 |
-| any6dp | puzzle_toy | 23.0 | 3.36 | 106.3 | 152.3 | 139.0 |
-| combined | bottle_bbq | 5.6 | 1.16 | 7.0 | 16.7 | - |
-| combined | mug_white | 3.4 | 0.72 | 27.7 | 73.0 | - |
-| combined | potato_masher | 12.3 | 3.82 | 69.2 | 172.8 | - |
-| combined | puzzle_toy | 21.1 | 2.64 | 96.8 | 157.4 | - |
-| combined | spatula_red | 10.1 | 5.5 | 30.1 | 153.4 | - |
-| combined | vase | 6.5 | 1.3 | 8.5 | 93.1 | - |
-| forehoi | bottle_bbq | 392.3 | 42.71 | 53.5 | 79.6 | 86.3 |
-| forehoi | mug_white | 1147.2 | 128.64 | 55.1 | 126.7 | 115.7 |
-| forehoi | potato_masher | 703.6 | 78.53 | 55.8 | 144.2 | 121.9 |
-| forehoi | puzzle_toy | 390.9 | 44.16 | 89.6 | 132.9 | 132.7 |
-| forehoi | spatula_red | 178.4 | 25.0 | 45.9 | 107.3 | 67.2 |
-| forehoi | vase | 212.3 | 26.64 | 82.0 | 136.6 | 168.3 |
-| fp | bottle_bbq | 93.4 | 16.2 | 48.3 | 68.0 | - |
-| fp | mug_white | 2.3 | 0.58 | 2.7 | 8.2 | - |
-| fp | potato_masher | 597.6 | 67.37 | 35.7 | 88.7 | - |
-| fp | puzzle_toy | 18.9 | 3.49 | 74.0 | 155.8 | - |
-| fp | spatula_red | 11.2 | 8.19 | 28.0 | 52.2 | - |
-| fp | vase | 6.6 | 1.94 | 3.0 | 14.8 | - |
-| fpauto | bottle_bbq | 2.6 | 0.51 | 16.3 | 162.9 | 158.9 |
-| fpauto | mug_white | 5.8 | 1.07 | 6.1 | 26.2 | 67.4 |
-| fpauto | vase | 4.9 | 2.09 | 5.9 | 83.7 | 164.4 |
-| fpauto | potato_masher | 9.7 | 2.27 | 102.5 | 173.0 | 162.9 |
-| fpauto | spatula_red | 11.0 | 3.96 | 5.8 | 11.3 | 15.7 |
-| fpauto | puzzle_toy | 15.3 | 2.11 | 13.1 | 74.7 | 173.1 |
-| icpj | vase | 17.5 | 2.48 | 19.4 | 80.9 | 77.0 |
-| icpj | potato_masher | 18.9 | 5.73 | 24.1 | 42.5 | 37.3 |
-| icpj | bottle_bbq | 19.9 | 3.68 | 39.3 | 72.8 | 91.4 |
-| icpj | puzzle_toy | 18.6 | 3.44 | 82.7 | 127.8 | 154.0 |
-| icpj | mug_white | 60.7 | 15.37 | 18.0 | 49.9 | 169.3 |
-| icpj | spatula_red | 158.8 | 13.94 | 32.8 | 70.2 | 46.0 |
-| **icpjgr** | bottle_bbq | 17.2 | 3.44 | 48.8 | 79.7 | 157.2 |
-| **icpjgr** | mug_white | 15.4 | 2.84 | 11.8 | 53.5 | 135.9 |
-| **icpjgr** | vase | 17.9 | 2.7 | 18.6 | 66.5 | 77.5 |
-| **icpjgr** | potato_masher | 26.8 | 10.77 | 24.9 | 44.2 | 172.4 |
-| **icpjgr** | spatula_red | 20.2 | 4.08 | 23.2 | 47.6 | 161.1 |
-| **icpjgr** | puzzle_toy | 18.4 | 3.43 | 83.1 | 127.3 | 161.6 |
-| icpjp | vase | 17.5 | 2.75 | 20.0 | 84.8 | 76.9 |
-| icpjp | potato_masher | 18.9 | 5.73 | 24.1 | 42.5 | 37.3 |
-| icpjp | bottle_bbq | 9.9 | 1.66 | 38.1 | 72.9 | 170.3 |
-| icpjp | puzzle_toy | 18.6 | 3.44 | 82.7 | 127.8 | 154.0 |
-| icpjp | mug_white | 7.0 | 2.03 | 22.7 | 76.4 | 123.8 |
-| icpjp | spatula_red | 20.4 | 4.42 | 31.3 | 44.9 | 164.2 |
-| icpjs | vase | 17.5 | 2.75 | 20.0 | 84.8 | 76.9 |
-| icpjs | potato_masher | 18.9 | 5.73 | 24.1 | 42.5 | 37.3 |
-| icpjs | bottle_bbq | 19.9 | 3.68 | 39.3 | 72.8 | 91.4 |
-| icpjs | puzzle_toy | 18.6 | 3.44 | 82.7 | 127.8 | 154.0 |
-| icpjs | mug_white | 7.0 | 2.03 | 22.7 | 76.4 | 123.8 |
-| icpjs | spatula_red | 20.5 | 4.42 | 31.3 | 44.9 | 164.2 |
+*Reproduced 2026-07-13 on 6 HOT3D clips with mocap-grade ground truth. Lower is better on every metric.* Method codes are decoded in [`GLOSSARY.md`](../../../GLOSSARY.md).
+
+## What the numbers mean
+- **Placement (mm)** — average 3D gap between the reconstructed object and the true object, both placed in the scene. Under ~5 mm is a tight fit.
+- **Rotation (deg)** — how well the object's turning matches truth, as median / 90th-percentile frame error. Large values mean the orientation is ambiguous (round/symmetric objects).
+- **Hand fit (px)** — how far the reconstructed hand lands from the real hand in the image. 2–4 px is pixel-accurate.
+
+## The result we ship (best object + best hand)
+| clip | object method | placement (mm) | rotation med/p90 (deg) | hand fit (px) |
+|---|---|---|---|---|
+| bottle_bbq | learned core | 2.9 | 53.5/161.9 | 2.3 |
+| mug_white | learned core | 4.1 | 12.2/33.5 | 3.8 |
+| vase | learned core | 5.4 | 6.4/58.6 | 2.7 |
+| spatula_red | learned core | 12.1 | 5.4/10.4 | 2.6 |
+| puzzle_toy | learned core | 15.3 | 21.1/93.7 | 3.2 |
+| potato_masher | registration pipeline | 22.0 | 62.4/81.8 | 1.9 |
+
+## Object placement: registration pipeline vs learned core (mm)
+| clip | registration pipeline | learned core | 
+|---|---|---|
+| bottle_bbq | 18.6 | 2.9 |
+| mug_white | 6.9 | 4.1 |
+| vase | 17.1 | 5.4 |
+| spatula_red | 29.9 | 12.1 |
+| puzzle_toy | 18.4 | 15.3 |
+| potato_masher | 22.0 | (uses pipeline) |
+
+## Hand fit: before vs after the hand optimizer (image reprojection, px)
+| clip | before | after |
+|---|---|---|
+| bottle_bbq | 56.6 | 2.3 |
+| mug_white | 23.3 | 3.8 |
+| vase | 35.4 | 2.7 |
+| spatula_red | 20.9 | 2.6 |
+| puzzle_toy | 5.4 | 3.2 |
+| potato_masher | 8.5 | 1.9 |
+
+*Older experimental methods (Any6D, ForeHOI, FoundationPose-standalone, and the registration-pipeline variants) are compared in the campaign notes under `docs/`.*

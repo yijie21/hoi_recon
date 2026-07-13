@@ -3,9 +3,10 @@
 ## ⭐ Best method (current) — full 4D HOI (object + hand)
 
 The current best result pairs the best **object** track with the best **hand**:
-**object → `fpauto`** (FoundationPose auto, drift-gated) and **hand → the hand-reprojection
-optimizer** (`joint_opt.py --freeze_object`, kp2d-aligned). Numbers + the exact copy-paste run
-recipe live at the top of the repo [`README.md`](../README.md); design in
+**object → `fpauto`** (FoundationPose auto, drift-gated — see the plain-language
+[GLOSSARY.md](../GLOSSARY.md) for what the method codes mean) and **hand → the
+hand-reprojection optimizer** (`joint_opt.py --freeze_object`, kp2d-aligned). Numbers + the
+exact copy-paste run recipe live at the top of the repo [`README.md`](../README.md); design in
 [`docs/adr/0001-hand-reprojection-optimizer.md`](docs/adr/0001-hand-reprojection-optimizer.md)
 and [`../compare/hot3d/docs/T6_NOTES.md`](../compare/hot3d/docs/T6_NOTES.md).
 
@@ -292,3 +293,77 @@ everything.
   far apart). Use a clip where the hand actually holds an object near it.
 - **`--depth vggt` result looks wrong-scale** — expected for now: VGGT geometry is
   up-to-scale; use `--depth moge` for the validated metric result.
+
+## Running specific configurations
+
+Extra notes from a real run on a **non-Blackwell** GPU (RTX 4090, `sm_89`) — useful if you're
+not on the RTX 5090/Blackwell boxes this guide otherwise assumes.
+
+### Single conda env instead of two
+
+On a pre-Blackwell GPU, the `cu121` stack works, so the two-env split (§3 / §3b) collapses
+into **one** env that holds both the main pipeline and the `sam3d-objects` subprocess side
+(set `backend.sam3d_env` to that same env name in the config). This was verified on a
+conda env named `forehoi` (torch 2.5.1+cu121, python 3.11) holding MoGe, SAM2, ultralytics,
+HaMeR runtime deps, chumpy, PyTorch3D, kaolin, and the SAM-3D-Objects fork:
+
+```bash
+conda activate forehoi                       # single env holds everything
+cd render_and_compare
+export HF_HOME=/workspace/huggingface_cache/
+export CUDA_VISIBLE_DEVICES=1                 # pick the GPU with the most free VRAM (>=20GB)
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+python -m hoi_recon.cli --video examples/wild6_trim.mp4 \
+    --out runs/wild6_real --real --config configs/real_forehoi.yaml
+```
+
+`configs/real_forehoi.yaml` uses the in-process silhouette object-pose tracker and the numpy
+grasp optimizer (robust, no heavy PyTorch3D subprocess). For the full differentiable path
+(render-compare object pose + joint MANO-articulation optimizer) in the same single env, use
+`configs/combined_forehoi.yaml` — identical to `configs/combined.yaml` except
+`sam3d_env: forehoi`.
+
+### SAM-3D / utils3d version conflict (single-env setups)
+
+MoGe-v2 (main pipeline, stage 0) needs the **new** `utils3d` (`utils3d.pt`), while
+`sam3d_objects` needs the **old** `utils3d` (`utils3d.numpy.depth_edge`) and its internal
+depth model imports **moge 1.0.0** (`utils3d.torch`) — mutually exclusive in one
+site-packages. Since the SAM-3D subprocess runs with `cwd = third_party/sam-3d-objects`, drop
+**local package shadows** there so the subprocess (only) sees the old stack, while the main
+process keeps the new one:
+
+- `third_party/sam-3d-objects/utils3d/` = utils3d 0.0.2
+- `third_party/sam-3d-objects/moge/` = moge 1.0.0
+
+`sys.path[0]` (the script dir) wins over site-packages, so no env is polluted — this is what
+makes SAM-3D run for real inside a single collapsed env.
+
+### GPU memory ordering (avoiding OOM in the differentiable subprocesses)
+
+The SAM-3D / render-compare / joint-opt subprocesses each need ~13 GB. If stages 0–2 run **in
+the same process** first, MoGe+SAM2+HaMeR stay resident and SAM-3D can OOM (it then falls back
+to the depth-lift hull, and the differentiable path is silently skipped). The robust recipe is
+to run stages 0–2 once, then re-invoke with `--stages 3-8` so the main process is light and
+the GPU subprocesses get the full card:
+
+```bash
+python -m hoi_recon.cli --video examples/wild6_trim.mp4 --out runs/wild6_combined \
+    --real --config configs/combined_forehoi.yaml --stages 0-2
+python -m hoi_recon.cli --video examples/wild6_trim.mp4 --out runs/wild6_combined \
+    --real --config configs/combined_forehoi.yaml --stages 3-8
+```
+
+(Or pin `CUDA_VISIBLE_DEVICES` to the emptier GPU.)
+
+### Output file reference
+
+Besides the reprojection-overlay videos (§6), the run dir holds (example shapes from a
+74-frame run):
+
+- **`stage8_eval/pseudo_gt.npz`** — `hand_verts[T,778,3]`, `hand_joints[T,21,3]`,
+  `obj_verts[V,3]`, `obj_faces[F,3]`, `obj_poses[T,4,4]`, `contact_map[T,285]`,
+  `rectify_delta`, `object_delta`.
+- **`stage7_contact_optim/arrays.npz`** — the same 4D HOI plus `obj_colors[V,3]` and
+  `hand_faces[1538,3]` (textured object + MANO topology).
+- **`stage8_eval/report.json`** — self-consistency diagnostics.

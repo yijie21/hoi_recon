@@ -9,21 +9,32 @@ High-stakes decisions: task deep-reasoner (Opus) with the problem, think it thro
 and synthesize a concise conclusion you can act on. Keep your own context lean.
 
 ## Where things stand (start here)
-Object HOI reconstruction on HOT3D. **Three** best arms (a Pareto triple):
-`icpjgr` (rotation-robust `BEST_ARM`, `render_and_compare/configs/real_forehoi_icp_joint_grasp.yaml`;
-bounds worst-case rotation on in-hand-rotated symmetric objects), `any6dp` (Any6D learned core,
-`configs/real_any6d.yaml`), and **`fpauto`** (FoundationPose auto — track+register_each with a
-drift-gated selector; `compare/hot3d/run_fp_hot3d.py`, env forehoi5090). **`fpauto` is the newest
-best learned core: it beats `any6dp` on BOTH placement (mean chamfer 8.2 vs 11.5mm) and rotation
-(mean rot_traj-p90 88.6 vs 111.6°)** by using a uniform metric mesh + FP's native flip-free tracker —
-see [`compare/hot3d/docs/T6_NOTES.md`](compare/hot3d/docs/T6_NOTES.md). NOTE this does NOT reopen the
-**proven-dead-end** rotation/attitude/texture *prior* axis (temporal / grasp-rigidity / anchor-attitude
-/ texture-baking — all tested negative; do not re-attempt); fpauto is a better learned estimator, not a
-corrective prior. Read, in order: [`BEST_STRATEGY.md`](BEST_STRATEGY.md) (workflow + roadmap outcomes +
-**Open directions**), [`compare/hot3d/docs/T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md) (full campaign),
-[`compare/hot3d/docs/T6_NOTES.md`](compare/hot3d/docs/T6_NOTES.md) (fpauto), then
-[`README.md`](README.md) (nav). Numbers: `compare/hot3d/scores/LEADERBOARD.md`. Envs + convention
-traps are in the recalled `hoi-recon-*` memories.
+This project reconstructs a hand using an object (a **4D hand-object interaction**) from
+egocentric video, tested on **HOT3D** (a benchmark with motion-capture ground truth).
+
+**Every method name and metric is decoded in [`GLOSSARY.md`](GLOSSARY.md) — read it first.**
+The three object methods, in plain terms:
+- **Registration pipeline (`icpjgr`)** — our hand-built method (fit object to depth+silhouette,
+  then close the grasp). Rotation-robust, never fails badly. The default `BEST_ARM`.
+  Config `render_and_compare/configs/real_forehoi_icp_joint_grasp.yaml`.
+- **Learned object core (`fpauto`, FoundationPose)** — best object placement (~8 mm) and rotation;
+  the object track we ship on 5 of 6 clips. `compare/hot3d/run_fp_hot3d.py`, env `forehoi5090`.
+- **Earlier learned core (`any6dp`, Any6D)** — good placement, weaker rotation; superseded by `fpauto`.
+
+The best result ships the **learned object core + the hand optimizer** (aligns the MANO hand to
+the observed hand pixels, 2–4 px), except the **potato masher** (a spinning symmetric object),
+which keeps the registration pipeline for rotation.
+
+**Do NOT reopen the rotation-prior dead end** (temporal / grasp-rigidity / anchor-attitude /
+texture-baking priors — all tested and failed). `fpauto` is a better *estimator*, not a corrective
+prior. Symmetric-object rotation is genuinely under-constrained by depth.
+
+Read in order: [`GLOSSARY.md`](GLOSSARY.md) (names), [`BEST_STRATEGY.md`](BEST_STRATEGY.md)
+(strategy + what's been tried), the campaign notes under `compare/hot3d/docs/`
+([`T5_NOTES.md`](compare/hot3d/docs/T5_NOTES.md), [`T6_NOTES.md`](compare/hot3d/docs/T6_NOTES.md)),
+then [`README.md`](README.md). Numbers: [`compare/hot3d/scores/LEADERBOARD.md`](compare/hot3d/scores/LEADERBOARD.md).
+Reproduce the best result from a fresh clone: [`render_and_compare/REPRODUCE.md`](render_and_compare/REPRODUCE.md).
+Envs + convention traps are in the recalled `hoi-recon-*` memories.
 
 ## Repository layout (three peers)
 - **`render_and_compare/`** — the main pipeline (installable package `hoi_recon`). 9 cached,
@@ -63,11 +74,14 @@ python -m hoi_recon.cli --video rgb.mp4 --out runs/<name> --real \
 # Re-run only some stages of an existing run
 python -m hoi_recon.cli --out runs/<name> --real --stages 4- --force
 
-# --- HOT3D benchmark harness (from compare/hot3d/, env rc5090) ---
+# --- HOT3D benchmark harness (from compare/hot3d/; envs noted per-line — rc5090 unless stated) ---
 python run_batch.py selection.json --arm icpjgr --config \
     ../../render_and_compare/configs/real_forehoi_icp_joint_grasp.yaml   # adapter→pipeline→overlay→score
-python run_any6d_hot3d.py <ABS rc_input> <ABS icpjgr_run> <ABS any6d_run>  # learned core (env forehoi5090)
+python run_any6d_hot3d.py <ABS rc_input> <ABS icpjgr_run> <ABS any6d_run>  # any6dp learned core (env forehoi5090)
 python combined_refine.py <any6d_run> <combined_run>                       # flip-fix + jitter smooth
+python run_fp_hot3d.py <ABS rc_input> <ABS icpjgr_run> <ABS fp_run> --mode auto  # fpauto learned core (env forehoi5090)
+./score_fp_modes.sh <ABS rc_input> <fp_run> <ABS icpjgr_run>              # score register_each/track/fuse (cache-instant)
+python run_hand_reproj.py <ABS run_dir> <ABS rc_input> [<out_dir>]        # hand→kp2d 2D-reproj optimizer (env sam3d5090)
 python gt_pose_eval_hot3d.py <rc_input> <run>                              # score vs mocap GT
 python leaderboard.py render                                               # → scores/LEADERBOARD.md
 

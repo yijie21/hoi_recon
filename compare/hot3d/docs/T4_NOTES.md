@@ -1,5 +1,13 @@
 # T4 — learned model-free tracker bake-off: literature pass + deferral
 
+> **In plain terms.** This document is a literature survey and feasibility triage, not a set of
+> results. It surveys candidate learned object-tracking methods (FoundationPose, Any6D,
+> BundleSDF, and others) and checks which ones could actually be built and run on this project's
+> GPUs. Most candidates needed incompatible or unbuildable software; only two (ForeHOI and HORT)
+> were judged feasible within budget and picked for the real comparison, whose results live in
+> [T4_RESULTS.md](T4_RESULTS.md). No method is integrated here — this is reconnaissance only.
+> Method codes decoded in [GLOSSARY.md](../../../GLOSSARY.md).
+
 Ran the literature pass (2026-07); **did not integrate** any method — deferred
 by user decision after the T1–T3 checkpoint (the campaign already delivered its
 main win on surface accuracy; a learned bake-off needs multi-hour Blackwell

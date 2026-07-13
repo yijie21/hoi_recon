@@ -2,55 +2,46 @@
  {
   "clip": "clip-002034",
   "cat": "bottle_bbq",
-  "chamfer_mm": 2.6,
-  "centroid_cm": 0.51,
-  "rot_traj_med": 16.3,
-  "rot_traj_p90": 162.9,
-  "rot_abs_med": 158.9
+  "chamfer_mm": 2.9,
+  "centroid_cm": 0.5,
+  "rot_traj_med": 53.5,
+  "rot_traj_p90": 161.9,
+  "rot_abs_med": 64.4
  },
  {
   "clip": "clip-001970",
   "cat": "mug_white",
-  "chamfer_mm": 5.8,
-  "centroid_cm": 1.07,
-  "rot_traj_med": 6.1,
-  "rot_traj_p90": 26.2,
-  "rot_abs_med": 67.4
+  "chamfer_mm": 4.1,
+  "centroid_cm": 0.84,
+  "rot_traj_med": 12.2,
+  "rot_traj_p90": 33.5,
+  "rot_abs_med": 10.9
  },
  {
   "clip": "clip-002500",
   "cat": "vase",
-  "chamfer_mm": 4.9,
-  "centroid_cm": 2.09,
-  "rot_traj_med": 5.9,
-  "rot_traj_p90": 83.7,
-  "rot_abs_med": 164.4
- },
- {
-  "clip": "clip-002349",
-  "cat": "potato_masher",
-  "chamfer_mm": 9.7,
-  "centroid_cm": 2.27,
-  "rot_traj_med": 102.5,
-  "rot_traj_p90": 173.0,
-  "rot_abs_med": 162.9
+  "chamfer_mm": 5.4,
+  "centroid_cm": 2.1,
+  "rot_traj_med": 6.4,
+  "rot_traj_p90": 58.6,
+  "rot_abs_med": 13.7
  },
  {
   "clip": "clip-001990",
   "cat": "spatula_red",
-  "chamfer_mm": 11.0,
-  "centroid_cm": 3.96,
-  "rot_traj_med": 5.8,
-  "rot_traj_p90": 11.3,
-  "rot_abs_med": 15.7
+  "chamfer_mm": 12.1,
+  "centroid_cm": 4.37,
+  "rot_traj_med": 5.4,
+  "rot_traj_p90": 10.4,
+  "rot_abs_med": 12.3
  },
  {
   "clip": "clip-001964",
   "cat": "puzzle_toy",
   "chamfer_mm": 15.3,
-  "centroid_cm": 2.11,
-  "rot_traj_med": 13.1,
-  "rot_traj_p90": 74.7,
-  "rot_abs_med": 173.1
+  "centroid_cm": 2.08,
+  "rot_traj_med": 21.1,
+  "rot_traj_p90": 93.7,
+  "rot_abs_med": 170.1
  }
 ]

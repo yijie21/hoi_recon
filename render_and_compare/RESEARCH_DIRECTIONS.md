@@ -1,5 +1,9 @@
 # Research Directions — picking up the HOI reconstruction work
 
+**What this is:** a forward-looking research log, not a status report of the shipped
+pipeline. It's for picking the project back up later or scoping a follow-up paper — it lists
+open ideas, the limitations that motivate them, and how they'd be evaluated.
+
 A pick-up document. It captures (a) where the pipeline stands, (b) the limitations we
 **measured** (not guessed), and (c) ranked, concrete directions for a follow-up paper.
 The repo implements the **CHOIR** paradigm (arXiv:2605.20992): *coarse contact-agnostic

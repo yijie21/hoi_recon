@@ -1,5 +1,13 @@
 # HOI-reconstruction on HOT3D — full experience log & method comparison
 
+> **In plain terms.** This is the full retrospective of the project: building the hand-built
+> registration pipeline (`icpjgr`) up through several improvements, then bake-off testing
+> learned pose estimators (Any6D, FoundationPose) against it, then a combined approach. The
+> conclusion: learned methods that use the calibrated depth data beat the hand-built pipeline on
+> placing the object correctly, but the hand-built pipeline is more robust (it never drifts off
+> or flips the object's rotation), so the best system combines both. Method codes decoded in
+> [GLOSSARY.md](../../../GLOSSARY.md).
+
 A reflective summary of the whole arc: from the first HOI4D sanity checks, through
 building and tuning the optimization pipeline, to the learned-method bake-off and
 the combined method. Written as a reference for what was tried, what worked, what

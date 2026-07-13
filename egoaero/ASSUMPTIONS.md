@@ -1,5 +1,15 @@
 # EgoAERO reproduction — assumptions & deviations
 
+> **In plain terms.** This document lists every place where the EgoAERO research paper (a
+> separate hand-object-interaction and robot-hand-policy project, distinct from the main HOT3D
+> pipeline) left a detail unspecified, and records what value or design choice was substituted
+> instead — things like reward weights, smoothing windows, and threshold constants. Most of this
+> project currently runs in a synthetic "mock" mode (small, fake test data) rather than on real
+> captured video, since real hardware/data wasn't available; each entry names the affected stage
+> and why the substitute was reasonable. This is not a set of experiment results — it's a
+> reference so a reader can tell which numbers in the code come from the paper versus which were
+> invented as defaults. Method/term codes decoded in [GLOSSARY.md](../GLOSSARY.md).
+
 Every value the paper leaves unspecified, with the section it fills and the source.
 
 ## Config defaults

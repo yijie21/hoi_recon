@@ -1,5 +1,14 @@
 # T6 — A better learned core than Any6D: FoundationPose auto (arm `fpauto`)
 
+> **In plain terms.** This document introduces `fpauto`, a new learned object-pose method built
+> on FoundationPose, that fixes the placement-vs-rotation trade-off documented in T5. By giving
+> FoundationPose an undistorted object mesh and using its own frame-to-frame tracker (instead of
+> treating every frame independently) plus a per-clip check that falls back to a safer mode when
+> tracking drifts, `fpauto` becomes the first learned arm to beat the previous best learned arm
+> (`any6dp`) on BOTH object placement accuracy AND rotation accuracy at the same time. It is now
+> the best learned object-pose method in the project, alongside the still-more-robust hand-built
+> `icpjgr`. Method codes decoded in [GLOSSARY.md](../../../GLOSSARY.md).
+
 Open-direction #1 from `BEST_STRATEGY.md` ("swap the learned stage-4 core to
 FoundationPose") — built and **validated as a win on both axes** over `any6dp`.
 This is the first arm to beat the placement-optimal `any6dp` on placement *and*
