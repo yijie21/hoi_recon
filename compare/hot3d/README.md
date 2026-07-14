@@ -8,6 +8,10 @@ and renders the results into [`scores/LEADERBOARD.md`](scores/LEADERBOARD.md).
 > See [`../../GLOSSARY.md`](../../GLOSSARY.md) for what every method code, metric, and env name
 > means. This page uses plain names and links the glossary once, here.
 
+> **Building the clean single-object HOI training clips** (separate from the benchmark) is
+> documented in [`HOI_CLIPS.md`](HOI_CLIPS.md) — one command regenerates the segment dataset +
+> its fast PyTorch dataloader.
+
 The detailed campaign log lives in [`docs/`](docs/) — [`docs/REFLECTION.md`](docs/REFLECTION.md)
 (full journey), [`docs/T4_RESULTS.md`](docs/T4_RESULTS.md) (learned-method bake-off numbers). This
 page is the short summary.
