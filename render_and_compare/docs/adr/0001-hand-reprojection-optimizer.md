@@ -79,7 +79,7 @@ All 6 clips, kp2d-only (no hand masks yet), vs GT UmeTrack hand — chamfer mm /
 
 **2D reprojection collapses to 1.9–3.8 px on every clip** (from 5–108 px median, 40–530 px p90 — the
 mis-placed-frame tail is eliminated); hand chamfer drops 3–20×. Before/after overlays:
-`compare/hot3d/overlays/hand_cmp_<clip>.mp4`. The residual
+`hand_cmp_<clip>.mp4` (dev branch). The residual
 ~9 mm chamfer is almost entirely depth (kp2d + silhouette are both z-blind; the hand z stays
 on HaMeR's depth-lift anchor) — an image-only floor, since correcting z would need the GT-hand
 depth we deliberately excluded for generality. Visually (overlays) the AFTER hand sits on the

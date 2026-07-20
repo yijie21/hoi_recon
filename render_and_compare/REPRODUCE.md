@@ -7,8 +7,7 @@ The current best result pairs the best **object** track with the best **hand**:
 [GLOSSARY.md](../GLOSSARY.md) for what the method codes mean) and **hand → the
 hand-reprojection optimizer** (`joint_opt.py --freeze_object`, kp2d-aligned). Numbers + the
 exact copy-paste run recipe live at the top of the repo [`README.md`](../README.md); design in
-[`docs/adr/0001-hand-reprojection-optimizer.md`](docs/adr/0001-hand-reprojection-optimizer.md)
-and [`../compare/hot3d/docs/T6_NOTES.md`](../compare/hot3d/docs/T6_NOTES.md).
+[`docs/adr/0001-hand-reprojection-optimizer.md`](docs/adr/0001-hand-reprojection-optimizer.md).
 
 **Prerequisites on a fresh clone** (once):
 

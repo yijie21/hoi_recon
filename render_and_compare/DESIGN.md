@@ -14,9 +14,7 @@ Target setting (per project decision): **model-free / unknown object** is the pr
 (SAM-3D-Objects / BundleSDF); capture setting kept general (third-person via HaMeR+Dyn-HaMR,
 egocentric via HaWoR) behind one hand interface.
 
-Companion docs: [README.md](README.md) (usage), [REPRODUCE.md](REPRODUCE.md) (setup + run),
-[RESEARCH_DIRECTIONS.md](RESEARCH_DIRECTIONS.md) (research roadmap),
-`docs/superpowers/specs|plans/` (the fine-stage design + implementation plans below).
+Companion docs: [README.md](README.md) (usage), [REPRODUCE.md](REPRODUCE.md) (setup + run).
 
 ---
 
@@ -45,8 +43,8 @@ Design decisions live in [`docs/adr/`](docs/adr/). For the repo-wide decoder of 
 
 **Object**
 - **Arm** — one end-to-end pipeline configuration + pose core, named and benchmarked
-  (`icpjgr`, `any6dp`, `fpauto`, ... — see [GLOSSARY.md](../GLOSSARY.md)). The unit of
-  comparison on the leaderboard.
+  (`icpjgr`, `fpauto` — see [GLOSSARY.md](../GLOSSARY.md)). The unit of
+  comparison in the HOT3D benchmark harness (`compare/hot3d/`).
 - **Mesh-controlled** — a comparison in which every arm registers/places the *same* SAM-3D
   stage-3 mesh, so only the pose/placement method differs (removes SAM-3D GPU nondeterminism
   as a confound).
@@ -193,7 +191,6 @@ scripts/
 
 configs/             YAML presets (see below)
 tests/               pytest unit tests: test_choir_fine_*.py + test_smoke.py
-docs/superpowers/    specs/ (fine-stage design) + plans/ (3 implementation plans)
 third_party/         cloned model repos (gitignored; entry scripts installed by setup_third_party.sh)
 checkpoints/         model weights (gitignored)
 runs/                per-clip outputs (gitignored)
@@ -229,7 +226,7 @@ this config table, which predates that work.)
 
 ## The CHOIR fine-stage work (design note)
 
-Built via spec → plan → TDD (superpowers workflow). The **term-registry optimizer**:
+Built via spec → plan → TDD. The **term-registry optimizer**:
 
 - **Energy terms** (`choir_fine/terms_torch.py`) are pure, unit-tested torch functions
   matching CHOIR §4.3 equations. The **registry** (`registry.py`) sums `weight * value` over
@@ -276,7 +273,7 @@ conda run -n hoi_recon python -m pytest tests/ -q   # 55 passing
 
 ### What's next for this work (planned, not yet built)
 
-From `docs/superpowers/specs/2026-06-12-choir-fine-stage-design.md`:
+From the CHOIR fine-stage design spec (dev branch):
 1. **Tune `combined_v2`** — add `anc_2d`/axis-split toggles to beat the 35px hand baseline.
 2. **Eval/ablation harness** (`scripts/ablate_fine.py`) — formalize the per-toggle A/B table.
 3. **Phase 2 — generative ray-depth rectifier** (flow-matching on GraspPair / DexGraspNet;

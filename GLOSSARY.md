@@ -1,7 +1,6 @@
 # Glossary — what the names and numbers mean
 
-A plain-language decoder for the abbreviations used across this repo. If a document
-uses a code you don't recognise, it's almost certainly here.
+A plain-language decoder for the abbreviations used across this repo.
 
 ## The task in one line
 Given an egocentric video of a hand using an object, recover the **4D hand-object
@@ -9,23 +8,16 @@ interaction**: the object's 3D shape + where it is and how it turns every frame,
 the hand's pose every frame. We test on **HOT3D**, a dataset with motion-capture
 ground truth, so every result can be scored against the truth.
 
-## Methods (the "arms" you see in results)
-An **arm** is one way of reconstructing the object. They share the same first steps
-(depth, masks, hand, object shape) and differ in how they place/rotate the object.
+## The method's parts
 
 | Code | Plain name | What it is |
 |---|---|---|
-| **`icpjgr`** | Registration pipeline | Our main hand-built method. Fits the object mesh onto the depth map + object silhouette, then closes the grasp by nudging the hand. Rotation-robust — never fails catastrophically. (`icp` = the fitting algorithm, `j` = joint depth+silhouette, `gr` = grasp-rigidity step.) This is the default `BEST_ARM`. |
-| **`fpauto`** | Learned object core (FoundationPose) | A learned RGB-D pose estimator (NVIDIA's FoundationPose) run on our uniform object mesh, with a drift-guard that picks its best per-clip mode. **Best object placement + rotation** — this is the object track we ship on 5 of 6 clips. (`fp` = FoundationPose, `auto` = the automatic drift-gated selector.) |
-| **`any6dp`** | Learned object core (Any6D) | An earlier learned pose core (Any6D) wired into the **p**ipeline. Great placement, weaker rotation. Superseded by `fpauto`. |
-| **`icpj`** | Registration pipeline, no grasp step | `icpjgr` without the final grasp-rigidity nudge — a baseline. |
-| **`icpjp` / `icpjs`** | Pipeline + photo / + segmentation | `icpj` variants that added a photometric term (`p`) or hand-aware segmentation (`s`); experimental. |
-| **`any6d` / `fp` / `forehoi`** | Standalone methods | Third-party methods run on their own (not inside our pipeline), for comparison only. |
-| **`combined`** | Any6D + smoothing | Any6D's per-frame pose with our temporal-smoothing layer bolted on. |
+| **`icpjgr`** | Registration pipeline | The hand-built pipeline arm. Fits the object mesh onto the depth map + object silhouette, then closes the grasp by nudging the hand. Rotation-robust — never fails catastrophically. (`icp` = the fitting algorithm, `j` = joint depth+silhouette, `gr` = grasp-rigidity step.) Provides the mesh + hand + fallback object track. |
+| **`fpauto`** | Learned object core (FoundationPose) | A learned RGB-D pose estimator (NVIDIA's FoundationPose) run on the pipeline's object mesh, with a drift-guard that picks its best per-clip mode. **Best object placement + rotation** — the object track shipped on 5 of 6 clips. (`fp` = FoundationPose, `auto` = the automatic drift-gated selector.) |
 
 **The hand** is reconstructed separately by the **hand-reprojection optimizer**: it takes
-the initial hand guess and slides the MANO hand model until it lines up with the hand
-pixels in the image. Used with every object arm.
+the pipeline's initial hand and slides the MANO hand model until it lines up with the hand
+pixels in the image. Used with both object tracks.
 
 ## Metrics (all: lower is better)
 | Name | Plain meaning |
@@ -54,19 +46,17 @@ optimization · `8` evaluate. Each caches its output and is skipped on re-run.
 | **SAM-3D** | Generates the object's textured 3D mesh from the masked image (stage 3). |
 | **MANO** | The standard parametric hand model (license-gated). |
 | **FoundationPose** | Learned RGB-D object pose estimator — the core of `fpauto`. |
-| **Any6D** | Another learned object pose estimator — the core of `any6dp`. |
 
-## Datasets
-- **HOT3D** — egocentric hand-object clips with mocap-grade ground truth (our benchmark). 6 fixed clips: bottle, mug, vase, potato masher, spatula, puzzle toy.
-- **HOI4D** — an earlier dataset used before HOT3D.
+## Dataset
+**HOT3D** — egocentric hand-object clips with mocap-grade ground truth (the benchmark).
+6 fixed clips: bottle, mug, vase, potato masher, spatula, puzzle toy.
 
 ## Conda environments (the RTX 5090 / Blackwell box)
 | Env | Runs |
 |---|---|
 | **`rc5090`** | The main pipeline + scoring + overlays. |
 | **`sam3d5090`** | SAM-3D object mesh generation + the hand optimizer. |
-| **`forehoi5090`** | FoundationPose / Any6D (the learned object cores). |
-| **`hort5090`** | HORT (a comparison method). |
+| **`forehoi5090`** | FoundationPose (the learned object core). |
 
 ## File landmarks
 - **`rc_input_<id>_<object>/`** — a HOT3D clip converted into pipeline input (video + depth + intrinsics).
