@@ -24,6 +24,15 @@
 #   L_prior        MANO pose stays near HaMeR; betas regularized; object stays on
 #                  its image-grounded track
 # Inputs are the stage bundles (exported to npz by the caller).
+#
+# OUTPUT npz (--out): hand_verts[T,778,3], hand_joints[T,21,3], obj_poses[T,4,4], visible[T],
+# plus the optimized MANO params (ADDITIVE, backward-compatible):
+#   mano_global_aa[T,3]  global-orient axis-angle (RIGHT-hand MANOLayer, camera frame)
+#   mano_pose_aa[T,45]   FULL 15-joint articulation axis-angle (NOT PCA-15; raw MANOLayer pose)
+#   mano_transl[T,3]     root translation (m, camera frame)
+#   mano_betas[10]       shared shape ; mano_side[T]  1=right/0=left (left => verts mirrored x->-x)
+# FK to reproduce the mesh: smplx.MANOLayer(is_rhand=True); verts = MANOLayer(global_orient=R(global_aa),
+#   hand_pose=R(pose_aa)).vertices; verts *= [-1,1,1] on left frames; verts += transl.
 import os
 import sys
 import glob
@@ -88,7 +97,8 @@ def main():
                                     MeshRasterizer, SoftSilhouetteShader, SoftPhongShader,
                                     PointLights, BlendParams)
     from pytorch3d.utils import cameras_from_opencv_projection
-    from pytorch3d.transforms import (matrix_to_rotation_6d, rotation_6d_to_matrix)
+    from pytorch3d.transforms import (matrix_to_rotation_6d, rotation_6d_to_matrix,
+                                      matrix_to_axis_angle)
     dev = "cuda"
 
     H = np.load(a.hand); O = np.load(a.obj)
@@ -325,9 +335,26 @@ def main():
         hv = (hv_r + transl[:, None]).cpu().numpy()
         jh = (jh_r + transl[:, None]).cpu().numpy()
         Rf = rotation_6d_to_matrix(o_r6).cpu().numpy(); tf = o_t.cpu().numpy()
+        # --- ADDITIVE: export the optimized per-frame MANO params (native parameterization).
+        # These let downstream (flow refiner) reconstruct the coarse hand as MANO, not only
+        # verts/joints. Convention documented in this file's header note below.
+        #   mano_global_aa [T,3]  : global-orient axis-angle (RIGHT-hand MANOLayer frame, CAMERA coords)
+        #   mano_pose_aa   [T,45] : FULL 15-joint articulation axis-angle (NOT PCA; MANOLayer raw pose)
+        #   mano_transl    [T,3]  : root translation (metres, camera frame); FK(root-rel verts)+transl = camera verts
+        #   mano_betas     [10]   : shared shape vector
+        #   mano_side      [T]    : 1=right, 0=left. LEFT frames: FK verts/joints are mirrored x->-x
+        #                           (params stay right-hand-model; mirror is applied to the output).
+        mano_global_aa = matrix_to_axis_angle(rotation_6d_to_matrix(g6)).cpu().numpy()          # (T,3)
+        mano_pose_aa = matrix_to_axis_angle(
+            rotation_6d_to_matrix(p6.reshape(T * 15, 6))).reshape(T, 45).cpu().numpy()          # (T,45)
+        mano_transl = transl.detach().cpu().numpy()                                             # (T,3)
+        mano_betas = betas.detach().cpu().numpy()                                               # (10,)
+        mano_side = side.astype(np.float32)                                                     # (T,)
     poses = np.tile(np.eye(4), (T,1,1)).astype(np.float32); poses[:,:3,:3]=Rf; poses[:,:3,3]=tf
-    np.savez(a.out, hand_verts=hv, hand_joints=jh, obj_poses=poses, visible=visible)
-    print(f"[jopt] wrote {a.out}")
+    np.savez(a.out, hand_verts=hv, hand_joints=jh, obj_poses=poses, visible=visible,
+             mano_global_aa=mano_global_aa, mano_pose_aa=mano_pose_aa, mano_transl=mano_transl,
+             mano_betas=mano_betas, mano_side=mano_side)
+    print(f"[jopt] wrote {a.out} (+MANO params: global_aa/pose_aa/transl/betas/side)")
 
 
 if __name__ == "__main__":
