@@ -4,9 +4,16 @@ blocklist Aria devices, precompute per-segment tensors (precompute_segments, wit
 UmeTrack joints), delete temp. Keeps disk flat (one clip extracted at a time),
 resumable (skips clips already recorded), writes the manifest incrementally.
 
+Refresh mode (--from_manifest): re-precompute the SEGMENT TENSORS ONLY for the windows an
+existing manifest already lists (no window re-detection), e.g. to add depth/masks. Resumable
+per segment (skips seg files that already carry the requested keys); shardable for parallel
+runs: --shard i/n splits the clip list, run one process per shard.
+
 Usage: build_hoi_dataset.py [--seg_dir ...] [--manifest ...] [--res 256] [--limit N]
+       [--with_depth] [--with_masks] [--from_manifest] [--shard i/n]
 """
 import argparse, glob, json, os, shutil, subprocess, time
+import numpy as np
 import gen_clean_clips as G
 import precompute_segments as P
 
@@ -33,14 +40,65 @@ def clip_list():
     return sorted(out)
 
 
+def _seg_has_keys(path, keys):
+    try:
+        with np.load(path, allow_pickle=True) as z:
+            return all(k in z.files for k in keys)
+    except Exception:
+        return False
+
+
+def refresh_from_manifest(a):
+    """Re-precompute seg tensors for the windows the existing manifest lists (adds new keys)."""
+    wins = json.load(open(a.manifest))["windows"]
+    need = (["depth_mm"] if a.with_depth else []) + (["seg_mask"] if a.with_masks else []) + ["T_world_pinhole"]
+    by_clip = {}
+    for w in wins:
+        by_clip.setdefault(w["source_clip"], []).append(w)
+    clips = sorted(by_clip)
+    if a.shard:
+        i, n = map(int, a.shard.split("/"))
+        clips = clips[i::n]
+    tars = {os.path.basename(p)[:-4]: p for split in ("train_aria", "test_aria")
+            for p in glob.glob(f"{DS}/{split}/*.tar")}
+    tmp_root = f"{DS}/_tmp_refresh{('_' + a.shard.replace('/', '_')) if a.shard else ''}"
+    os.makedirs(tmp_root, exist_ok=True)
+    todo = [c for c in clips
+            if not all(_seg_has_keys(f"{a.seg_dir}/seg_{w['window_id']}.npz", need) for w in by_clip[c])]
+    print(f"refresh: {len(clips)} clips in shard, {len(todo)} to do (keys {need})", flush=True)
+    t0 = time.time()
+    for i, cid in enumerate(todo):
+        tdir = f"{tmp_root}/{cid}"
+        try:
+            os.makedirs(tdir, exist_ok=True)
+            subprocess.run(["tar", "-xf", tars[cid], "-C", tdir], check=True)
+            P.process_clip(tdir, by_clip[cid], a.seg_dir, a.res, a.fov, a.nverts,
+                           a.with_depth, a.with_masks)
+        except Exception as e:
+            print(f"  FAIL {cid}: {type(e).__name__}: {e}", flush=True)
+        finally:
+            shutil.rmtree(tdir, ignore_errors=True)
+        if (i + 1) % 10 == 0 or i + 1 == len(todo):
+            rate = (i + 1) / max(time.time() - t0, 1e-9) * 3600
+            print(f"[{i+1}/{len(todo)}] {cid} | {rate:.0f} clips/h | eta {(len(todo)-i-1)/max(rate,1e-9):.1f} h", flush=True)
+    shutil.rmtree(tmp_root, ignore_errors=True)
+    print("refresh done")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seg_dir", default=f"{DS}/hoi_segments")
     ap.add_argument("--manifest", default=f"{DS}/hoi_clean_manifest.json")
     ap.add_argument("--res", type=int, default=256); ap.add_argument("--fov", type=float, default=90.0)
     ap.add_argument("--nverts", type=int, default=2000); ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--with_depth", action="store_true"); ap.add_argument("--with_masks", action="store_true")
+    ap.add_argument("--from_manifest", action="store_true",
+                    help="refresh seg tensors for the existing manifest's windows (no re-detection)")
+    ap.add_argument("--shard", default="", help="i/n: process clips[i::n] (refresh mode)")
     a = ap.parse_args()
     os.makedirs(a.seg_dir, exist_ok=True)
+    if a.from_manifest:
+        return refresh_from_manifest(a)
     tmp_root = f"{DS}/_tmp_build"; os.makedirs(tmp_root, exist_ok=True)
     prog_path = a.manifest + ".progress.json"
     prog = json.load(open(prog_path)) if os.path.exists(prog_path) else {"done_clips": [], "windows": []}
@@ -60,7 +118,8 @@ def main():
             wins, _ = G.process_clip(tdir, TH)
             wins = [w for w in wins if not ARIA_BLOCK(w.get("object_name"))]
             if wins:
-                P.process_clip(tdir, wins, a.seg_dir, a.res, a.fov, a.nverts)
+                P.process_clip(tdir, wins, a.seg_dir, a.res, a.fov, a.nverts,
+                               a.with_depth, a.with_masks)
                 windows += wins
         except Exception as e:
             print(f"  FAIL {cid}: {type(e).__name__}: {e}", flush=True)

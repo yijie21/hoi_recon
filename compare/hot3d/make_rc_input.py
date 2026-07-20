@@ -17,7 +17,10 @@ in the per-frame pinhole camera frame (for later overlay/eval), and the SAM2
 prompt pixel (GT centroid of the target in frame 0 — the "user click").
 
 Usage: make_rc_input.py <clip_dir> <target_uid> <out_dir>
+       [--start S --end E]   # optional inclusive frame sub-window (default: whole clip)
+       [--out_res N]         # optional pinhole output size (default 1024)
 """
+import argparse
 import glob
 import json
 import os
@@ -55,11 +58,32 @@ def load_mesh(uid):
 
 
 def main():
-    clip = sys.argv[1].rstrip("/")
-    target_uid = sys.argv[2]
-    out_dir = sys.argv[3]
+    global OUT, FOV_DEG
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("clip")
+    ap.add_argument("target_uid")
+    ap.add_argument("out_dir")
+    ap.add_argument("--start", type=int, default=None,
+                    help="first frame index (inclusive) of a sub-window; default 0")
+    ap.add_argument("--end", type=int, default=None,
+                    help="last frame index (inclusive) of a sub-window; default last frame")
+    ap.add_argument("--out_res", type=int, default=OUT,
+                    help="pinhole output size (square); default %(default)s")
+    ap.add_argument("--fov", type=float, default=FOV_DEG,
+                    help="pinhole horizontal FOV in degrees; default %(default)s")
+    a = ap.parse_args()
+    OUT, FOV_DEG = a.out_res, a.fov
+    clip = a.clip.rstrip("/")
+    target_uid = a.target_uid
+    out_dir = a.out_dir
     os.makedirs(f"{out_dir}/depth_png", exist_ok=True)
     frames = sorted(glob.glob(f"{clip}/*.objects.json"))
+    # optional inclusive frame sub-window. Indices match precompute_segments.py
+    # (0-based into the same sorted *.objects.json list) so poses transfer 1:1.
+    frame_start = a.start if a.start is not None else 0
+    frame_end = a.end if a.end is not None else len(frames) - 1
+    frames = frames[frame_start:frame_end + 1]
 
     f = 0.5 * OUT / np.tan(np.radians(FOV_DEG / 2))
     K = np.array([[f, 0, OUT / 2 - 0.5], [0, f, OUT / 2 - 0.5], [0, 0, 1.0]])
@@ -153,7 +177,8 @@ def main():
     np.savez(f"{out_dir}/gt_target.npz", poses=tgt_poses, K=K,
              uid=int(target_uid))
     json.dump({"clip": clip, "target_uid": target_uid, "prompt": prompt,
-               "fov_deg": FOV_DEG, "out": OUT},
+               "fov_deg": FOV_DEG, "out": OUT,
+               "frame_start": frame_start, "frame_end": frame_end},
               open(f"{out_dir}/meta.json", "w"), indent=1)
     print("prompt(px):", prompt)
 

@@ -84,6 +84,11 @@ def main():
     ap.add_argument("--drift_thresh_m", type=float, default=0.05,
                     help="auto mode: median ||track_t - reg_t|| below this => tracker held")
     ap.add_argument("--anchor", type=int, default=None)
+    ap.add_argument("--mesh_glb", default=None,
+                    help="pose this GLB (e.g. the GT eval model) instead of the icpjgr run's "
+                         "stage8 mesh. Poses then come out in the GLB's own canonical frame "
+                         "(model-based FP's native setting), directly comparable to that GLB's "
+                         "GT poses. Masks/anchor still come from <run_dir>.")
     ap.add_argument("--max_frames", type=int, default=None)
     ap.add_argument("--iteration", type=int, default=5, help="register refine iters")
     ap.add_argument("--track_iter", type=int, default=2, help="track_one refine iters")
@@ -102,16 +107,29 @@ def main():
 
     anchor = args.anchor
     if anchor is None:
-        meta = json.load(open(f"{run}/stage3_object/meta.json"))
-        anchor = int(meta.get("anchor_frame", 0))
+        try:
+            meta = json.load(open(f"{run}/stage3_object/meta.json"))
+            anchor = int(meta.get("anchor_frame", 0))
+        except (FileNotFoundError, json.JSONDecodeError):
+            anchor = T // 2  # no stage3 (e.g. --mesh_glb GT mode): central frame anchors track
     anchor = max(0, min(anchor, T - 1))  # clamp (e.g. when --max_frames caps below anchor)
 
     # UNIFORM-metric mesh: icpjgr's globally-scaled canonical mesh (obj_verts posed by
     # obj_poses in its eval npz). Same SAM-3D shape as any6dp's raw mesh but scaled by a
     # single global factor (Umeyama), so it is NOT per-axis distorted like register_any6d.
-    zc = np.load(f"{run}/stage8_eval/pseudo_gt.npz")
-    verts = zc["obj_verts"].astype(np.float64)
-    faces = zc["obj_faces"].astype(np.int64)
+    if args.mesh_glb:
+        # GT-mesh mode: pose the eval GLB itself (meters, GT canonical). FoundationPose
+        # returns poses wrt the input mesh frame (register() applies get_tf_to_centered_mesh),
+        # so obj_poses land in this GLB's canonical -> directly comparable to its GT poses.
+        g = trimesh.load(args.mesh_glb)
+        gm = (trimesh.util.concatenate(list(g.geometry.values()))
+              if isinstance(g, trimesh.Scene) else g)
+        verts = np.asarray(gm.vertices, np.float64)
+        faces = np.asarray(gm.faces, np.int64)
+    else:
+        zc = np.load(f"{run}/stage8_eval/pseudo_gt.npz")
+        verts = zc["obj_verts"].astype(np.float64)
+        faces = zc["obj_faces"].astype(np.int64)
     mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
     print(f"[fp] T={T} anchor={anchor} mesh verts={len(verts)} extent={mesh.extents} K=\n{K}")
 

@@ -45,16 +45,24 @@ class HOISegments(Dataset):
             "K": torch.from_numpy(np.asarray(z["K"])),                       # [3,3]
             "obj_uid": int(z["obj_uid"]),
         }
+        # optional keys (present after a --with_depth/--with_masks refresh)
+        if "depth_mm" in z.files:
+            out["depth"] = torch.from_numpy(np.asarray(z["depth_mm"][s:e]).astype(np.float32)) / 1000.0  # [t,R,R] m, 0 = no return
+        if "seg_mask" in z.files:
+            out["seg_mask"] = torch.from_numpy(np.asarray(z["seg_mask"][s:e]))  # [t,R,R] u8: 0 bg,1 target,2 other obj,3 L hand,4 R hand
+        if "T_world_pinhole" in z.files:
+            out["T_world_pinhole"] = torch.from_numpy(np.asarray(z["T_world_pinhole"][s:e]))  # [t,4,4]
         if self.seq_len and (e - s) < self.seq_len:  # pad short segments
             pad = self.seq_len - (e - s)
-            for k in ("rgb", "obj_pose", "hand_mano", "hand_wrist", "hand_joints", "hands_present"):
-                out[k] = torch.cat([out[k], out[k][-1:].repeat((pad,) + (1,) * (out[k].ndim - 1))], 0)
+            for k, v in out.items():
+                if k not in ("obj_verts", "K", "obj_uid"):
+                    out[k] = torch.cat([v, v[-1:].repeat((pad,) + (1,) * (v.ndim - 1))], 0)
         return out
 
     @staticmethod
     def collate(batch):  # fixed seq_len -> stack; obj_verts/uid kept as lists (variable Nv)
-        keys_stack = ("rgb", "obj_pose", "hand_mano", "hand_wrist", "hand_joints", "hands_present", "K")
-        out = {k: torch.stack([b[k] for b in batch]) for k in keys_stack}
+        out = {k: torch.stack([b[k] for b in batch]) for k in batch[0]
+               if k not in ("obj_verts", "obj_uid")}
         out["obj_verts"] = [b["obj_verts"] for b in batch]
         out["obj_uid"] = [b["obj_uid"] for b in batch]
         return out

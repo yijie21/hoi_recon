@@ -86,7 +86,16 @@ Thresholds live in `build_hoi_dataset.py` (`TH`) — loosen `min_len` / `win_tra
 | `hand_wrist` | `[T,2,4,4]` | UmeTrack wrist pose, camera frame |
 | `hand_joints` | `[T,2,20,3]` | UmeTrack 20 landmarks, camera frame (license-free) |
 | `hands_present` | `[T,2]` bool | which hands are present |
+| `T_world_pinhole` | `[T,4,4]` | per-frame `T_world_from_pinhole` camera pose (head motion; enables world/gravity canonicalization) |
+| `depth_mm` | `[T,256,256]` uint16 | GT z-depth raycast of **all** objects + hands, mm, 0 = no return |
+| `seg_mask` | `[T,256,256]` uint8 | nearest-hit instance class: 0 bg, 1 target, 2 other objects, 3 left hand, 4 right hand |
 | `meta` | json str | window_id, source_clip, sequence_id, participant_id, frames, object_name, fps, fov, res |
+
+(`T_world_pinhole`/`depth_mm`/`seg_mask` were added for conditioning the flow-matching refiner;
+regenerate them on an existing segment dir with
+`python build_hoi_dataset.py --from_manifest --with_depth --with_masks [--shard i/n]` —
+resumable, ~1 h with 4 shards, disk ×2. The dataloader exposes them as `depth` (float
+meters), `seg_mask`, `T_world_pinhole` when present.)
 
 All GT is harvested from the HOT3D annotations (no reconstruction pipeline needed).
 
