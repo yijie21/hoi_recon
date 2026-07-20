@@ -1,3 +1,0 @@
-# EgoAERO mock configuration — no real weights or video needed.
-# All defaults are defined in egoaero/config.py; this file only sets mock: true.
-mock: true
