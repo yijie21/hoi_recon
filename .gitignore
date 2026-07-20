@@ -42,3 +42,11 @@ wget-log
 any6d/
 compare/hot3d/gt_pose_hot3d_*.json
 compare/hot3d/__pycache__/
+
+# hoi_flow: data/ is a code+calibration dir, not a dataset dir — re-include it
+!hoi_flow/data/
+
+# raw MANO v1.2 download — license-gated model files, must never be committed
+aseets/
+# clean-clip validation previews (186 MB of PNGs) — regenerable via render_clean_overlay.py
+compare/hot3d/overlays/clean_validation/

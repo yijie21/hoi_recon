@@ -1,0 +1,69 @@
+# hoi_flow base config — model core + bridge sampler + conditioning + (future) training.
+# train.py / sample.py are authored later; lr/wd/batch below are placeholders they will read.
+
+seq_len: 32                # frames per training window (T)
+
+model:                     # HOIDiT (DiT temporal transformer, endpoint field)
+  d: 512
+  depth: 8
+  heads: 8
+  mlp_ratio: 4
+  t_freq: 256              # sinusoidal flow-time embedding width
+
+bridge:
+  sigma0: 0.1              # source Gaussian-smoothing std (noise vanishes at t=1)
+  n_steps: 8               # Euler steps per window at sample time
+  window: 32               # sliding-window length over T
+  overlap: 16              # cross-fade overlap between windows (must be < window)
+  block_weights:           # bridge_loss per-block weighting (masked endpoint-MSE)
+    obj_rot: 1.0
+    obj_trans: 1.0
+    hand: 1.0
+
+conditioning:
+  rgb_backbone: dino       # "dino" (frozen DINOv2 ViT-S/14) | "tinycnn" (tests, no download)
+  modalities:              # enable/disable each observation stream
+    rgb: true
+    depth: true
+    seg_mask: true
+    obj_points: true
+    K: true
+  dropout:                 # per-modality dropout prob at train time (applied per batch)
+    rgb: 0.3
+    depth: 0.3
+    seg_mask: 0.3
+    obj_points: 0.2
+    K: 0.1
+
+data:
+  seg_dir: /workspace/datasets/hot3d/hoi_segments
+  normalizer: hoi_flow/data/norm.json
+  require_all_modalities: true   # skip files lacking depth_mm/seg_mask (refresh still running)
+  obj_profile: pooled
+  hand_profile: pooled
+  corrupt_scale: [0.0, 1.5]   # per-sample magnitude s~U(lo,hi); real coarse spans near-perfect -> full calibrated
+  seed: 0
+
+train:
+  name: run
+  steps: 20000
+  lr: 1.0e-4
+  wd: 0.01
+  batch_size: 32
+  num_workers: 6
+  sched: cosine            # "cosine" | "constant"
+  warmup: 200
+  grad_clip: 1.0
+  ema_decay: 0.999
+  log_every: 50
+  val_every: 500
+  ckpt_every: 1000
+  seed: 0
+
+val:
+  n_segments: 24
+  n_steps: [8, 1]          # refined@8 (multi-step) and refined@1 (regressor control)
+  seed: 12345              # FIXED corruption/window seed for the val set
+  sigma0: 0.1
+  window: 32
+  overlap: 16
