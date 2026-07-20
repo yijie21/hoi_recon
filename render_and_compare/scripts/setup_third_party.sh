@@ -63,9 +63,9 @@ for entry in "${REPOS[@]}"; do
   fi
 done
 
-# Any6D (taeyeopl/Any6D) — the FoundationPose/Any6D core for the fpauto object arm (and the
-# any6dp learned core). It is imported directly (not a subprocess entry) and lives at the OUTER
-# repo root ("<repo>/any6d"), where run_fp_hot3d.py / object_any6d.py expect it. It bundles
+# Any6D (taeyeopl/Any6D) — the FoundationPose core for the fpauto object arm. It is
+# imported directly (not a subprocess entry) and lives at the OUTER
+# repo root ("<repo>/any6d"), where run_fp_hot3d.py expects it. It bundles
 # foundationpose/; build its CUDA exts (mycpp, bundlesdf/mycuda) + fetch FP weights per the
 # forehoi5090 recipe (REPRODUCE.md "Best method").
 if should_clone any6d; then

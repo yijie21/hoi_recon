@@ -49,23 +49,10 @@ def run(ctx) -> Bundle:
     s_icp = 1.0
     learned_radius = None
 
-    # Item 1: LEARNED per-frame RGB-D pose core (Any6D) + temporal layer, in place
-    # of ICP. The object is frozen through stages 5-7 (config: smoothing.window=1 +
-    # optim.joint.freeze_object) so eval scores exactly these cleaned poses.
-    if pose_core == "learned" and not cfg.mock and s0.meta.get("has_depth"):
-        from ..object_any6d import estimate_object_poses_any6d
-        s1 = ctx.load("stage1_detect_track")
-        run_dir = os.path.dirname(os.path.dirname(s1.assets["masks_dir"]))
-        depth_env = os.environ.get("RC_GT_DEPTH_DIR")
-        if not depth_env:
-            raise RuntimeError("learned pose core needs RC_GT_DEPTH_DIR (rc_input depth_png)")
-        rc_input = os.path.dirname(depth_env)
-        learned = icp_cfg.get("learned") if hasattr(icp_cfg, "get") else None
-        out = estimate_object_poses_any6d(learned, run_dir, rc_input, s3)
-        obj_verts, obj_faces = out["obj_verts"], out["obj_faces"]
-        obj_poses = out["obj_poses"]
-        learned_radius = out["obj_radius"]
-        icp_stats = out["stats"]
+    if pose_core == "learned":
+        raise NotImplementedError(
+            "the in-pipeline learned pose core lives on the dev branch; on main use "
+            "compare/hot3d/run_fp_hot3d.py (FoundationPose) on top of a registration run")
 
     # CHOIR coarse: ray-scale alignment — slide the object along the camera ray so
     # its interaction depth matches the hand (preserves the silhouette fit).

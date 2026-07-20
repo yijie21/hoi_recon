@@ -4,7 +4,7 @@
 #       --config configs/combined.yaml
 #   hoi-recon-view --run runs/grab_combined
 #
-# The A/B comparison (method_comparison.html) showed each method wins a different
+# The A/B comparison showed each method wins a different
 # half of the problem:
 #   * OBJECT  — ours wins: render-and-compare (silhouette + PHOTOMETRIC) recovers
 #               in-hand spin and tracks 6D more accurately than CHOIR's

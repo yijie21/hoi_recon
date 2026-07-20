@@ -1,8 +1,6 @@
 """Temporal-consistency layer for a per-frame object pose trajectory.
 
-This is the pipeline-internal home of what used to live only in
-`compare/hot3d/combined_refine.py` (a standalone post-processor). It cleans a
-sequence of per-frame object poses produced by a *per-frame-independent* estimator
+It cleans a sequence of per-frame object poses produced by a *per-frame-independent* estimator
 (e.g. Any6D) using two priors the frame-independent estimator lacks:
 
   1. Symmetry-flip resolution: discover the object's near-symmetry group G

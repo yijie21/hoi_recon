@@ -17,7 +17,7 @@ Writes <out_dir>/out.npz = {hand_verts[T,778,3], hand_joints[T,21,3], obj_poses,
 joint_opt.py writes out.npz directly (--out), so its ADDITIVE MANO-param keys
 (mano_global_aa[T,3], mano_pose_aa[T,45], mano_transl[T,3], mano_betas[10], mano_side[T];
 axis-angle, RIGHT-hand MANOLayer, camera frame — see joint_opt.py header) pass through
-unchanged into out.npz for gen_real_pairs.py to marshal into coarse_*.npz.
+unchanged into out.npz (additive MANO-param passthrough for downstream consumers).
 """
 import argparse
 import os

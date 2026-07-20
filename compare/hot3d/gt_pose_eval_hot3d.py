@@ -1,12 +1,10 @@
 """Score a render_and_compare run on a HOT3D clip against the mocap GT pose
 trajectory + scanned eval model (never seen by the pipeline).
 
-Same metrics as the HOI4D version (compare/hoi4d/gate2/sam3d_icp/
-gt_pose_eval.py): posed-surface symmetric chamfer, centroid offset, absolute
+Metrics: posed-surface symmetric chamfer, centroid offset, absolute
 rotation via a shape-ICP canonical alignment G, and rot_traj via the
 trajectory-optimal chordal-mean alignment. HOT3D GT is mocap-grade
-(pixel-tight overlays), so unlike HOI4D there is no ~6 mm annotation noise
-floor excusing residuals.
+(pixel-tight overlays), so no annotation noise floor excuses residuals.
 
 Usage: gt_pose_eval_hot3d.py <rc_input_dir> <run_dir> [more_run_dirs...]
 """

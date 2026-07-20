@@ -4,7 +4,7 @@ per frame onto the depth point cloud inside the object mask.
 Replaces the depth-lift-anchored object trajectory with a direct geometric
 registration against the depth substrate. Scale is deliberately NOT a per-frame
 free variable: partial-view fits cannot observe it (a 53% oversized mesh fits
-the visible front at unchanged residual — see compare/hoi4d/gate2/sam3d_icp/),
+the visible front at unchanged residual),
 so the object stays a rigid body. What IS observable is ONE global scale from
 the union of all registered frames (`global_scale_refit`): the fused
 multi-frame cloud covers enough of the object to pin the metric size that the
@@ -119,7 +119,7 @@ def _solve_shared_scale(src_tree, src_pts, qs, s0, trim=0.95, iters=5):
     centering and a mild trim — per-frame centering + tight trims remove the
     very evidence (radial extent mismatch, boundary correspondences) that
     makes global scale observable; the validated Route-B solve is exactly
-    this fixed-pose fused-cloud fit (compare/hoi4d/gate2/sam3d_icp)."""
+    this fixed-pose fused-cloud fit."""
     q = np.concatenate(qs)
     s = s0
     for _ in range(iters):

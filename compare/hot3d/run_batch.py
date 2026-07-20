@@ -157,8 +157,9 @@ def main():
                 log_txt = open(lp, errors="ignore").read()
             if "falling back to depth-lift" in log_txt:
                 raise RuntimeError("INVALID: stage3 fell back to depth-lift")
-            sh([PY, f"{HERE}/make_rc_vs_gt_overlay.py", inp, run,
-                f"{HERE}/overlays/rc_vs_gt_{cat}_{num}_{a.arm}.mp4"])
+            if os.path.exists(f"{HERE}/make_rc_vs_gt_overlay.py"):  # diagnostic overlay (dev branch)
+                sh([PY, f"{HERE}/make_rc_vs_gt_overlay.py", inp, run,
+                    f"{HERE}/overlays/rc_vs_gt_{cat}_{num}_{a.arm}.mp4"])
             sh([PY, f"{HERE}/gt_pose_eval_hot3d.py", inp, run])
             r = json.load(open(f"{HERE}/gt_pose_hot3d_{os.path.basename(run)}.json"))
             v = list(r.values())[0]
